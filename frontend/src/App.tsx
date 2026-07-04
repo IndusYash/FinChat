@@ -217,6 +217,23 @@ export default function App() {
     historyEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isTyping]);
 
+  const [typingMsg, setTypingMsg] = useState<string>("FinChat is executing CPU GGUF inference. This may take 60-90 seconds...");
+
+  // Rotate typing description messages for GGUF CPU inference
+  useEffect(() => {
+    if (isTyping && provider === 'fine-tuned') {
+      setTypingMsg("FinChat is executing CPU GGUF inference. This may take 60-90 seconds...");
+      const interval = setInterval(() => {
+        setTypingMsg(prev => 
+          prev.includes("GGUF") 
+            ? "Responses are limited to 150-200 tokens due to compute limitations..."
+            : "FinChat is executing CPU GGUF inference. This may take 60-90 seconds..."
+        );
+      }, 5000);
+      return () => clearInterval(interval);
+    }
+  }, [isTyping, provider]);
+
   // Helper to fetch live stock metrics from our FastAPI server
   const fetchStockData = async (symbol: string) => {
     try {
@@ -723,7 +740,7 @@ export default function App() {
                 </div>
                 {provider === 'fine-tuned' && (
                   <span className="typing-description">
-                    FinChat is executing CPU GGUF inference. This may take 60-90 seconds, and responses are limited to 150-200 tokens due to compute limitations...
+                    {typingMsg}
                   </span>
                 )}
               </div>

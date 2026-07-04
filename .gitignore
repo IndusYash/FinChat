@@ -34,3 +34,7 @@ rag_processed*/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Notebook explanation files
+preparation/*_explained.md
+

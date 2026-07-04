@@ -111,8 +111,10 @@ def get_stock_data(ticker: str):
     ticker = ticker.strip()
     
     # Smart Ticker Resolver using Groq: resolves full names (e.g. "samsung", "google") to ticker symbols
+    KNOWN_TICKERS = {"AAPL", "MSFT", "GOOG", "GOOGL", "TSLA", "NVDA", "AMZN", "META", "NFLX", "AMD", "INTC"}
+    is_standard_ticker = (ticker.upper() in KNOWN_TICKERS) or (ticker.isupper() and ticker.isalpha() and 2 <= len(ticker) <= 4)
+    
     resolved_ticker = ticker
-    is_standard_ticker = ticker.isalpha() and len(ticker) <= 5
     
     if (not is_standard_ticker or ticker.lower() == "samsung") and GROQ_API_KEY:
         try:
@@ -128,7 +130,7 @@ def get_stock_data(ticker: str):
                     "messages": [
                         {
                             "role": "system", 
-                            "content": "You are a financial stock ticker symbol resolver. Given a company name, description, or search term, respond with ONLY the primary stock ticker symbol (e.g., AAPL, GOOG, TSLA, MSFT, SSNLF, SMSN.IL). Do not write anything else. No explanation, no punctuation, no bolding. Just the uppercase ticker code. If you cannot determine it, output UNKNOWN."
+                            "content": "You are a financial stock ticker symbol resolver. Given a company name, description, or search term, respond with ONLY the primary stock ticker symbol (e.g., AAPL, GOOG, TSLA, MSFT, SSNLF, TATAMOTORS.NS, ADANIENT.NS). Do not write anything else. No explanation, no punctuation, no bolding. Just the uppercase ticker code. If you cannot determine it, output UNKNOWN."
                         },
                         {
                             "role": "user",
@@ -143,7 +145,7 @@ def get_stock_data(ticker: str):
             if res_comp.ok:
                 resolved_val = res_comp.json()["choices"][0]["message"]["content"].strip().upper()
                 resolved_val = re.sub(r'[^A-Z0-9\.\-]', '', resolved_val)
-                if resolved_val and "UNKNOWN" not in resolved_val and len(resolved_val) <= 10:
+                if resolved_val and "UNKNOWN" not in resolved_val and len(resolved_val) <= 12:
                     print(f"✓ Groq resolved '{ticker}' to ticker symbol '{resolved_val}'")
                     resolved_ticker = resolved_val
         except Exception as e:
@@ -157,20 +159,62 @@ def get_stock_data(ticker: str):
     change_percent = 0.0
     volume = "N/A"
     
-    if FINNHUB_API_KEY:
+    def fetch_finnhub_quote(sym):
+        nonlocal price, change, change_percent
+        if FINNHUB_API_KEY:
+            try:
+                q_res = requests.get(f"https://finnhub.io/api/v1/quote?symbol={sym}&token={FINNHUB_API_KEY}").json()
+                if q_res:
+                    raw_price = q_res.get("c")
+                    price = float(raw_price) if raw_price is not None else 0.0
+                    
+                    raw_change = q_res.get("d")
+                    change = float(raw_change) if raw_change is not None else 0.0
+                    
+                    raw_change_percent = q_res.get("dp")
+                    change_percent = float(raw_change_percent) if raw_change_percent is not None else 0.0
+            except Exception as e:
+                print(f"Error fetching Finnhub quote: {e}")
+
+    fetch_finnhub_quote(ticker)
+    
+    # Fallback: if quote returned 0.0 and we didn't run the resolver yet, resolve it now
+    if price == 0.0 and is_standard_ticker and GROQ_API_KEY:
         try:
-            q_res = requests.get(f"https://finnhub.io/api/v1/quote?symbol={ticker}&token={FINNHUB_API_KEY}").json()
-            if q_res:
-                raw_price = q_res.get("c")
-                price = float(raw_price) if raw_price is not None else 0.0
-                
-                raw_change = q_res.get("d")
-                change = float(raw_change) if raw_change is not None else 0.0
-                
-                raw_change_percent = q_res.get("dp")
-                change_percent = float(raw_change_percent) if raw_change_percent is not None else 0.0
+            print(f"Ticker '{ticker}' returned 0.0 price. Trying to resolve using Groq fallback...")
+            res_comp = requests.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {GROQ_API_KEY}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": "llama-3.1-8b-instant",
+                    "messages": [
+                        {
+                            "role": "system", 
+                            "content": "You are a financial stock ticker symbol resolver. Given a company name, description, or search term, respond with ONLY the primary stock ticker symbol (e.g., AAPL, GOOG, TSLA, MSFT, SSNLF, TATAMOTORS.NS, ADANIENT.NS). Do not write anything else. No explanation, no punctuation, no bolding. Just the uppercase ticker code. If you cannot determine it, output UNKNOWN."
+                        },
+                        {
+                            "role": "user",
+                            "content": f"Company: {ticker}"
+                        }
+                    ],
+                    "temperature": 0.0,
+                    "max_tokens": 10
+                },
+                timeout=4
+            )
+            if res_comp.ok:
+                resolved_val = res_comp.json()["choices"][0]["message"]["content"].strip().upper()
+                resolved_val = re.sub(r'[^A-Z0-9\.\-]', '', resolved_val)
+                if resolved_val and "UNKNOWN" not in resolved_val and resolved_val != ticker:
+                    print(f"✓ Groq resolved fallback '{ticker}' to '{resolved_val}'")
+                    ticker = resolved_val
+                    # Re-fetch quote with the corrected symbol
+                    fetch_finnhub_quote(ticker)
         except Exception as e:
-            print(f"Error fetching Finnhub quote: {e}")
+            print(f"Error in fallback ticker resolution: {e}")
             
     # 2. Fetch fundamentals and overview from Alpha Vantage
     name = f"{ticker} Inc."

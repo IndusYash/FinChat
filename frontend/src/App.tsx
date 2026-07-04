@@ -206,6 +206,7 @@ export default function App() {
   ]);
   const [chatInput, setChatInput] = useState<string>('');
   const [isTyping, setIsTyping] = useState<boolean>(false);
+  const [isSearching, setIsSearching] = useState<boolean>(false);
   const [backendStatus, setBackendStatus] = useState<'ONLINE' | 'OFFLINE'>('OFFLINE');
   const [timeframe, setTimeframe] = useState<'1D' | '1W' | '1M' | '1Y'>('1W');
   const [provider, setProvider] = useState<'fine-tuned' | 'cloud'>('fine-tuned');
@@ -279,9 +280,9 @@ export default function App() {
     if (!cleanTicker) return;
 
     if (backendStatus === 'ONLINE') {
-      setIsTyping(true);
+      setIsSearching(true);
       const data = await fetchStockData(cleanTicker);
-      setIsTyping(false);
+      setIsSearching(false);
       
       if (data) {
         setSearchInput('');
@@ -486,9 +487,9 @@ export default function App() {
                 value={searchInput}
                 onChange={e => setSearchInput(e.target.value)}
               />
-              <button type="submit" className="search-button">
+              <button type="submit" className="search-button" disabled={isSearching}>
                 <Search size={14} />
-                <span>LOAD</span>
+                <span>{isSearching ? 'LOADING...' : 'LOAD'}</span>
               </button>
             </form>
           </div>

@@ -726,7 +726,7 @@ export default function App() {
                 </div>
                 {provider === 'fine-tuned' && (
                   <span className="typing-description">
-                    Investo is executing local CPU GGUF inference. This may take 60-90 seconds...
+                    Investo is executing CPU GGUF inference. This may take 60-90 seconds...
                   </span>
                 )}
               </div>

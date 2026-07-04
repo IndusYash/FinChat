@@ -360,6 +360,7 @@
   display: flex;
   flex-direction: column;
   max-width: 85%;
+  animation: fadeSlideIn 0.25s ease forwards;
 }
 
 .chat-message-row.user {
@@ -582,6 +583,49 @@
 @keyframes pulse-op {
   0%, 100% { opacity: 0.6; }
   50% { opacity: 1; }
+}
+
+@keyframes fadeSlideIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes syncFadeOut {
+  from { opacity: 1; max-height: 40px; padding: 8px 24px; }
+  to   { opacity: 0; max-height: 0;   padding: 0  24px; }
+}
+
+/* ── SYNC BANNER ──────────────────────────────── */
+.sync-banner {
+  padding: 7px 24px;
+  background-color: var(--text-main);
+  color: var(--bg-main);
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  animation: syncFadeOut 0.4s ease 2.6s forwards;
+}
+
+/* ── COPY BUTTON ────────────────────────────── */
+.copy-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 8px;
+  background: transparent;
+  border: 1px solid var(--border-muted);
+  padding: 3px 8px;
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.copy-btn:hover {
+  border-color: var(--border-color);
+  color: var(--text-main);
 }
 
 /* ── MOBILE & TABLET RESPONSIVENESS ────────────────────────── */

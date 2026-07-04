@@ -5,7 +5,9 @@ import {
   TrendingUp, 
   TrendingDown, 
   BookOpen, 
-  Layers 
+  Layers,
+  Copy,
+  Check
 } from 'lucide-react';
 import { 
   ResponsiveContainer, 
@@ -208,6 +210,8 @@ export default function App() {
   const [timeframe, setTimeframe] = useState<'1D' | '1W' | '1M' | '1Y'>('1W');
   const [provider, setProvider] = useState<'fine-tuned' | 'cloud'>('fine-tuned');
   const [showWaitPrompt, setShowWaitPrompt] = useState<boolean>(false);
+  const [syncedTicker, setSyncedTicker] = useState<string | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const historyEndRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -364,6 +368,8 @@ export default function App() {
         if (data.resolved_ticker) {
           const resolvedUpper = data.resolved_ticker.toUpperCase();
           fetchStockData(resolvedUpper);
+          setSyncedTicker(resolvedUpper);
+          setTimeout(() => setSyncedTicker(null), 3000);
         }
       } else {
         throw new Error('API failed');
@@ -487,6 +493,13 @@ export default function App() {
             </form>
           </div>
 
+          {/* Sync Banner — flashes when chat auto-detects a new company */}
+          {syncedTicker && (
+            <div className="sync-banner">
+              ⚡ Dashboard synced to {syncedTicker}
+            </div>
+          )}
+
           {/* Real-time Ticker stats */}
           <div className="overview-grid">
             <div className="overview-card">
@@ -557,10 +570,10 @@ export default function App() {
                   <Line 
                     type="monotone" 
                     dataKey="price" 
-                    stroke="#000000" 
+                    stroke={isUp ? '#16a34a' : '#dc2626'}
                     strokeWidth={2}
-                    dot={{ stroke: '#000000', strokeWidth: 2, r: 3, fill: '#ffffff' }}
-                    activeDot={{ r: 5, fill: '#000000' }}
+                    dot={{ stroke: isUp ? '#16a34a' : '#dc2626', strokeWidth: 2, r: 3, fill: '#ffffff' }}
+                    activeDot={{ r: 5, fill: isUp ? '#16a34a' : '#dc2626' }}
                   />
                 </LineChart>
               </ResponsiveContainer>
@@ -706,7 +719,22 @@ export default function App() {
                     </span>
                   )}
                   <div>{m.content}</div>
-                  
+
+                  {m.role === 'bot' && (
+                    <button
+                      className="copy-btn"
+                      onClick={() => {
+                        navigator.clipboard.writeText(m.content);
+                        setCopiedId(m.id);
+                        setTimeout(() => setCopiedId(null), 2000);
+                      }}
+                      title="Copy response"
+                    >
+                      {copiedId === m.id ? <Check size={11} /> : <Copy size={11} />}
+                      <span>{copiedId === m.id ? 'Copied' : 'Copy'}</span>
+                    </button>
+                  )}
+
                   {m.fallback_active && (
                     <div className="fallback-warning">
                       <strong>⚠️ Auto-Shifted to Cloud API</strong>

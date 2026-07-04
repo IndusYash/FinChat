@@ -316,8 +316,8 @@ def run_chat_rag(payload: ChatPayload):
             
         context = "\n\n".join(context_blocks)
         
-        # 4. Construct grounded prompt
-        prompt = f"""You are Investo Bot, an expert AI financial assistant. 
+        # 4. Construct system instruction and plain text prompt
+        system_instruction = f"""You are Investo Bot, an expert AI financial assistant. 
 Your job is to answer the user's question accurately using ONLY the provided document sources.
 If the answer cannot be found in the sources, say: "I'm sorry, but I cannot find the answer to that in the provided documents."
 
@@ -326,7 +326,9 @@ Always explain risks when discussing investments, avoid making unrealistic guara
 ---
 RELEVANT DOCUMENT SOURCES:
 {context}
----
+---"""
+
+        prompt = f"""{system_instruction}
 
 USER QUESTION:
 {payload.message}
@@ -343,11 +345,14 @@ ASSISTANT RESPONSE:"""
         if payload.provider == "fine-tuned":
             try:
                 print(f"Sending RAG request to GGUF Space at {HF_SPACE_URL}/generate...")
-                # We use a 120-second timeout as CPU basic can take some time
+                # Format using Llama 3 Chat Template for the fine-tuned model
+                gguf_prompt = f"<|start_header_id|>system<|end_header_id|>\n\n{system_instruction}<|eot_id|><|start_header_id|>user<|end_header_id|>\n\n{payload.message}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n"
+                
+                # Limit to 150 tokens to ensure CPU generation stays well within the 120-second timeout
                 response = requests.post(
                     f"{HF_SPACE_URL.rstrip('/')}/generate",
                     headers={"Content-Type": "application/json"},
-                    json={"prompt": prompt, "max_tokens": 300},
+                    json={"prompt": gguf_prompt, "max_tokens": 150},
                     timeout=120
                 )
                 if response.ok:

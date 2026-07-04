@@ -57,9 +57,11 @@ interface StockData {
 }
 
 // ── CONFIG ───────────────────────────────────────────────────────
-const BACKEND_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-  ? 'http://localhost:8000'
-  : 'https://indusyash-coordinator-rag.hf.space'; // Resolves to your coordinator Space
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || (
+  window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+    ? 'http://localhost:8000'
+    : 'https://indusyash-coordinator-rag.hf.space'
+);
 
 // ── MOCK DATA FOR DEMO ──────────────────────────────────────────
 const MOCK_STOCKS: Record<string, StockData> = {

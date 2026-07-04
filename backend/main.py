@@ -326,6 +326,43 @@ def get_stock_data(ticker: str):
         "news": news_list
     }
 
+def extract_mentioned_ticker(message: str):
+    if not GROQ_API_KEY:
+        return None
+    try:
+        res = requests.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {GROQ_API_KEY}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "model": "llama-3.1-8b-instant",
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": "You are a financial entity extractor. Read the user message and identify if it mentions or asks about any specific stock, brand, company, or ticker. If it does, return ONLY the primary uppercase stock ticker symbol that represents it (e.g. AAPL, TSLA, MSFT, NVDA, GOOG, AMZN, SSNLF). Do not write any other text or punctuation. If no brand/company is mentioned, or if it is a general question without any specific entity, return UNKNOWN."
+                    },
+                    {
+                        "role": "user",
+                        "content": f"Message: {message}"
+                    }
+                ],
+                "temperature": 0.0,
+                "max_tokens": 10
+            },
+            timeout=3
+        )
+        if res.ok:
+            ticker = res.json()["choices"][0]["message"]["content"].strip().upper()
+            ticker = re.sub(r'[^A-Z0-9\.\-]', '', ticker)
+            if ticker and "UNKNOWN" not in ticker and len(ticker) <= 10:
+                print(f"✓ Detected company/ticker reference '{ticker}' in user message.")
+                return ticker
+    except Exception as e:
+        print(f"Error in extract_mentioned_ticker: {e}")
+    return None
+
 class ChatPayload(BaseModel):
     message: str
     ticker: str = "AAPL"
@@ -495,12 +532,15 @@ ASSISTANT RESPONSE:"""
                 detail="Failed to generate response. Both GGUF Space and Cloud APIs were unreachable or returned errors."
             )
         
+        resolved_ticker = extract_mentioned_ticker(payload.message)
+
         return {
             "answer": answer,
             "sources": list(set(sources)),
             "provider_used": provider_used,
             "fallback_active": fallback_active,
-            "fallback_reason": fallback_reason
+            "fallback_reason": fallback_reason,
+            "resolved_ticker": resolved_ticker
         }
         
     except HTTPException as he:

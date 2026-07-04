@@ -27,6 +27,7 @@ interface Message {
   provider_used?: string;
   fallback_active?: boolean;
   fallback_reason?: string;
+  resolved_ticker?: string;
 }
 
 interface StockData {
@@ -263,11 +264,6 @@ export default function App() {
       
       if (data) {
         setSearchInput('');
-        setMessages(prev => [...prev, {
-          id: `search-${Date.now()}`,
-          role: 'bot',
-          content: `Fetched live metrics for ${data.name} (${cleanTicker}). P/E: ${data.peRatio}, Price: $${data.price}. Ask me any questions.`
-        }]);
       } else {
         alert(`Failed to fetch data for "${cleanTicker}" from API.`);
       }
@@ -277,11 +273,6 @@ export default function App() {
         setTicker(cleanTicker);
         setStock(MOCK_STOCKS[cleanTicker]);
         setSearchInput('');
-        setMessages(prev => [...prev, {
-          id: `search-${Date.now()}`,
-          role: 'bot',
-          content: `Loaded mock metrics for ${MOCK_STOCKS[cleanTicker].name} (${cleanTicker}). Ask me anything about this stock.`
-        }]);
       } else {
         alert(`Ticker "${cleanTicker}" not found in mock data. (API server is offline). Try AAPL, TSLA, or MSFT.`);
       }
@@ -349,8 +340,14 @@ export default function App() {
           sources: data.sources,
           provider_used: data.provider_used,
           fallback_active: data.fallback_active,
-          fallback_reason: data.fallback_reason
+          fallback_reason: data.fallback_reason,
+          resolved_ticker: data.resolved_ticker
         }]);
+
+        if (data.resolved_ticker) {
+          const resolvedUpper = data.resolved_ticker.toUpperCase();
+          fetchStockData(resolvedUpper);
+        }
       } else {
         throw new Error('API failed');
       }

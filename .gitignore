@@ -1,0 +1,36 @@
+# Python caches & build artifacts
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.ipynb_checkpoints/
+
+# Node/React outputs & packages
+node_modules/
+dist/
+build/
+.eslintcache
+
+# Sensitive credentials & API Keys
+.env
+.env.local
+.env.*
+
+# Hugging Face cloned workspaces (to avoid push overlap)
+Rag_finetune/
+Coordinator_rag/
+inference_server/
+
+# Large RAG local datasets & vector databases
+investo_rag*/
+rag_processed*/
+*.pkl
+*.npy
+*.faiss
+
+# IDE & OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini

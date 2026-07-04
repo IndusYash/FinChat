@@ -257,9 +257,16 @@ def get_stock_data(ticker: str):
     # ── Fallback: Market Stack for company name & fundamentals ────────────
     # Triggered only when Alpha Vantage returned nothing useful
     if name == f"{ticker} Inc." and MARKET_STACK_API_KEY:
+        # Translate yahoo suffix format (.NS / .BO) to Market Stack format (.XNSE / .XBOM)
+        ms_symbol = ticker
+        if ms_symbol.endswith(".NS"):
+            ms_symbol = ms_symbol[:-3] + ".XNSE"
+        elif ms_symbol.endswith(".BO"):
+            ms_symbol = ms_symbol[:-3] + ".XBOM"
+            
         try:
-            print(f"Alpha Vantage returned no overview for {ticker}. Trying Market Stack...")
-            ms_ticker_url = f"http://api.marketstack.com/v1/tickers/{ticker.lower()}?access_key={MARKET_STACK_API_KEY}"
+            print(f"Alpha Vantage returned no overview for {ticker}. Trying Market Stack with {ms_symbol}...")
+            ms_ticker_url = f"http://api.marketstack.com/v1/tickers/{ms_symbol.lower()}?access_key={MARKET_STACK_API_KEY}"
             ms_res = requests.get(ms_ticker_url, timeout=5).json()
             ms_name = ms_res.get("name", "")
             if ms_name:
@@ -368,12 +375,19 @@ def get_stock_data(ticker: str):
     # ── Fallback: Market Stack for EOD chart data ─────────────────────────
     # Triggered only when Alpha Vantage time series returned nothing
     if not chart_data and MARKET_STACK_API_KEY:
+        # Translate yahoo suffix format (.NS / .BO) to Market Stack format (.XNSE / .XBOM)
+        ms_symbol = ticker
+        if ms_symbol.endswith(".NS"):
+            ms_symbol = ms_symbol[:-3] + ".XNSE"
+        elif ms_symbol.endswith(".BO"):
+            ms_symbol = ms_symbol[:-3] + ".XBOM"
+
         try:
-            print(f"Alpha Vantage returned no chart data for {ticker}. Trying Market Stack EOD...")
+            print(f"Alpha Vantage returned no chart data for {ticker}. Trying Market Stack EOD with {ms_symbol}...")
             ms_eod_url = (
                 f"http://api.marketstack.com/v1/eod"
                 f"?access_key={MARKET_STACK_API_KEY}"
-                f"&symbols={ticker}"
+                f"&symbols={ms_symbol}"
                 f"&limit=5"
                 f"&sort=ASC"
             )
@@ -393,7 +407,7 @@ def get_stock_data(ticker: str):
                         vol = entry.get("volume", 0)
                         volume = f"{vol:,}" if vol else "N/A"
             if chart_data:
-                print(f"✓ Market Stack provided {len(chart_data)} EOD data points for {ticker}.")
+                print(f"✓ Market Stack provided {len(chart_data)} EOD data points for {ms_symbol}.")
         except Exception as e:
             print(f"Error fetching Market Stack EOD data: {e}")
 

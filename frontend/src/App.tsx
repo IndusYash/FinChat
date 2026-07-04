@@ -447,6 +447,8 @@ export default function App() {
   };
 
   const isUp = stock.change >= 0;
+  const isIndian = stock.symbol.toUpperCase().endsWith('.NS') || stock.symbol.toUpperCase().endsWith('.BO') || stock.symbol.toUpperCase().endsWith('.XNSE') || stock.symbol.toUpperCase().endsWith('.XBOM');
+  const currencySymbol = isIndian ? '₹' : '$';
 
   return (
     <div className="app-container">
@@ -509,7 +511,7 @@ export default function App() {
             </div>
             <div className="overview-card">
               <span className="card-label">LAST PRICE</span>
-              <span className="card-value">${(stock.price ?? 0).toFixed(2)}</span>
+              <span className="card-value">{currencySymbol}{(stock.price ?? 0).toFixed(2)}</span>
             </div>
             <div className="overview-card">
               <span className="card-label">CHANGE</span>

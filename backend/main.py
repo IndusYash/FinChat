@@ -247,10 +247,12 @@ def get_stock_data(ticker: str):
                     except:
                         pass
                 
+                is_indian = ticker.endswith(".NS") or ticker.endswith(".BO") or ticker.endswith(".XNSE") or ticker.endswith(".XBOM")
+                curr = "₹" if is_indian else "$"
                 low_52 = ov_res.get("52WeekLow", "")
                 high_52 = ov_res.get("52WeekHigh", "")
                 if low_52 and high_52:
-                    range_52 = f"${low_52} - ${high_52}"
+                    range_52 = f"{curr}{low_52} - {curr}{high_52}"
         except Exception as e:
             print(f"Error fetching Alpha Vantage overview: {e}")
 

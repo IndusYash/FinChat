@@ -210,6 +210,26 @@ def get_stock_data(ticker: str):
         except Exception as e:
             print(f"Error fetching Alpha Vantage overview: {e}")
 
+    # ── Fallback: Market Stack for company name & fundamentals ────────────
+    # Triggered only when Alpha Vantage returned nothing useful
+    if name == f"{ticker} Inc." and MARKET_STACK_API_KEY:
+        try:
+            print(f"Alpha Vantage returned no overview for {ticker}. Trying Market Stack...")
+            ms_ticker_url = f"http://api.marketstack.com/v1/tickers/{ticker.lower()}?access_key={MARKET_STACK_API_KEY}"
+            ms_res = requests.get(ms_ticker_url, timeout=5).json()
+            ms_name = ms_res.get("name", "")
+            if ms_name:
+                name = ms_name
+                print(f"✓ Market Stack resolved name: {name}")
+                # Market Stack also exposes stock_exchange info
+                exch = ms_res.get("stock_exchange", {})
+                if exch:
+                    exch_name = exch.get("name", "")
+                    if exch_name:
+                        market_cap = f"Listed on {exch_name}"
+        except Exception as e:
+            print(f"Error fetching Market Stack ticker info: {e}")
+
     # 3. Fetch News from Finnhub (Company News)
     news_list = []
     if FINNHUB_API_KEY:
@@ -300,6 +320,38 @@ def get_stock_data(ticker: str):
                     })
         except Exception as e:
             print(f"Error fetching Alpha Vantage daily series: {e}")
+
+    # ── Fallback: Market Stack for EOD chart data ─────────────────────────
+    # Triggered only when Alpha Vantage time series returned nothing
+    if not chart_data and MARKET_STACK_API_KEY:
+        try:
+            print(f"Alpha Vantage returned no chart data for {ticker}. Trying Market Stack EOD...")
+            ms_eod_url = (
+                f"http://api.marketstack.com/v1/eod"
+                f"?access_key={MARKET_STACK_API_KEY}"
+                f"&symbols={ticker}"
+                f"&limit=5"
+                f"&sort=ASC"
+            )
+            ms_eod_res = requests.get(ms_eod_url, timeout=5).json()
+            eod_data = ms_eod_res.get("data", [])
+            day_names = ["Mon", "Tue", "Wed", "Thu", "Fri"]
+            for i, entry in enumerate(eod_data[:5]):
+                close_price = entry.get("close", 0.0)
+                if close_price:
+                    chart_data.append({
+                        "date": day_names[i] if i < len(day_names) else entry.get("date", "")[:10],
+                        "price": float(close_price)
+                    })
+                    # Also grab price & volume from most recent EOD if Finnhub missed it
+                    if price == 0.0 and i == len(eod_data) - 1:
+                        price = float(close_price)
+                        vol = entry.get("volume", 0)
+                        volume = f"{vol:,}" if vol else "N/A"
+            if chart_data:
+                print(f"✓ Market Stack provided {len(chart_data)} EOD data points for {ticker}.")
+        except Exception as e:
+            print(f"Error fetching Market Stack EOD data: {e}")
 
     if not chart_data:
         chart_data = [

@@ -197,7 +197,7 @@ export default function App() {
     {
       id: 'welcome',
       role: 'bot',
-      content: 'Hello. I am Investo Bot. I can retrieve and analyze any global stock ticker (e.g., AAPL, TSLA, MSFT, NVDA, AMZN). Search for a symbol above to load its real-time metrics, or ask me any question.',
+      content: 'Hello. I am FinChat. I can retrieve and analyze any global stock ticker (e.g., AAPL, TSLA, MSFT, NVDA, AMZN). Search for a symbol above to load its real-time metrics, or ask me any question.',
       provider_used: 'system'
     }
   ]);
@@ -433,7 +433,7 @@ export default function App() {
       <header className="app-header">
         <div className="header-logo">
           <Layers size={18} strokeWidth={2.5} />
-          <span className="logo-text">INVESTO BOT / RAG HUB</span>
+          <span className="logo-text">FINCHAT / RAG HUB</span>
         </div>
         <div className="header-status">
           <div className="status-badge">

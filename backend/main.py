@@ -343,10 +343,11 @@ def run_chat_rag(payload: ChatPayload):
         # 1. Embed query
         query_vector = retriever.encode(payload.message, normalize_embeddings=True).tolist()
         
-        # 2. Query Pinecone
+        # 2. Query Pinecone (Adaptive: retrieve 2 chunks for CPU GGUF to reduce prefill latency, 4 for Cloud)
+        top_k_size = 2 if payload.provider == "fine-tuned" else 4
         res = index.query(
             vector=query_vector,
-            top_k=4,
+            top_k=top_k_size,
             include_metadata=True
         )
         
@@ -399,11 +400,11 @@ ASSISTANT RESPONSE:"""
                 # Format using Llama 3 Chat Template for the fine-tuned model
                 gguf_prompt = f"<|start_header_id|>system<|end_header_id|>\n\n{system_instruction}<|eot_id|><|start_header_id|>user<|end_header_id|>\n\n{payload.message}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n"
                 
-                # Limit to 200 tokens to ensure CPU generation stays well within the 120-second timeout
+                # Limit to 70 tokens to keep execution time under the 60-second Hugging Face gateway timeout
                 response = requests.post(
                     f"{HF_SPACE_URL.rstrip('/')}/generate",
                     headers={"Content-Type": "application/json"},
-                    json={"prompt": gguf_prompt, "max_tokens": 200},
+                    json={"prompt": gguf_prompt, "max_tokens": 70},
                     timeout=120
                 )
                 if response.ok:

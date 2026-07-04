@@ -317,11 +317,16 @@ def run_chat_rag(payload: ChatPayload):
         context = "\n\n".join(context_blocks)
         
         # 4. Construct system instruction and plain text prompt
-        system_instruction = f"""You are Investo Bot, an expert AI financial assistant. 
-Your job is to answer the user's question accurately using ONLY the provided document sources.
-If the answer cannot be found in the sources, say: "I'm sorry, but I cannot find the answer to that in the provided documents."
+        system_instruction = f"""You are FinChat, an expert AI financial assistant. 
+Your job is to answer the user's question in a detailed, comprehensive, and well-structured manner using the provided document sources.
 
-Always explain risks when discussing investments, avoid making unrealistic guarantees, and cite which source(s) you are using.
+Structure your response:
+1. Start with a clear definition or summary.
+2. Elaborate on the core concepts, components, or financial methods mentioned in the sources.
+3. Organize your thoughts using clean paragraphs or bullet points for readability.
+4. Cite which source(s) you are using. Always highlight investment risks when relevant.
+
+If the answer cannot be found in the sources, say: "I'm sorry, but I cannot find the answer to that in the provided documents."
 
 ---
 RELEVANT DOCUMENT SOURCES:
@@ -348,11 +353,11 @@ ASSISTANT RESPONSE:"""
                 # Format using Llama 3 Chat Template for the fine-tuned model
                 gguf_prompt = f"<|start_header_id|>system<|end_header_id|>\n\n{system_instruction}<|eot_id|><|start_header_id|>user<|end_header_id|>\n\n{payload.message}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n"
                 
-                # Limit to 150 tokens to ensure CPU generation stays well within the 120-second timeout
+                # Limit to 200 tokens to ensure CPU generation stays well within the 120-second timeout
                 response = requests.post(
                     f"{HF_SPACE_URL.rstrip('/')}/generate",
                     headers={"Content-Type": "application/json"},
-                    json={"prompt": gguf_prompt, "max_tokens": 150},
+                    json={"prompt": gguf_prompt, "max_tokens": 200},
                     timeout=120
                 )
                 if response.ok:

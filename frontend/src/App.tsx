@@ -362,7 +362,7 @@ export default function App() {
       setMessages(prev => [...prev, {
         id: `bot-err-${Date.now()}`,
         role: 'bot',
-        content: "I encountered an error querying the local FastAPI server. Please check that it is running.",
+        content: "I encountered an error querying the FastAPI server. Please check that it is running.",
         provider_used: 'error'
       }]);
     } finally {
@@ -397,7 +397,7 @@ export default function App() {
         let reply = "";
         let sources: string[] = [];
 
-        // Simple local pattern matching for mockup demo
+        // Simple pattern matching for mockup demo
         const lower = text.toLowerCase();
         if (lower.includes('dividend') || lower.includes('payout')) {
           reply = `${stock.name} pays a dividend of ${stock.dividendYield}. Historically, dividend payouts have been supported by steady operating cash flow margins, as outlined in the Berkshire reports and SEC filings.`;
@@ -647,7 +647,7 @@ export default function App() {
         {/* ── RIGHT PANEL: CHATBOT ──────────────────────────────── */}
         <section className="chat-panel">
           <div className="chat-panel-header">
-            <span className="chat-header-title">ASK INVESTO BOT</span>
+            <span className="chat-header-title">ASK FINCHAT</span>
             <div className="provider-selector">
               <button 
                 type="button"
@@ -678,7 +678,7 @@ export default function App() {
             {messages.map(m => (
               <div key={m.id} className={`chat-message-row ${m.role}`}>
                 <div className="message-meta">
-                  {m.role === 'user' ? 'USER QUERY' : 'INVESTO BOT'}
+                  {m.role === 'user' ? 'USER QUERY' : 'FINCHAT'}
                 </div>
                 <div className="message-bubble">
                   {m.role === 'bot' && m.provider_used && (
@@ -726,7 +726,7 @@ export default function App() {
                 </div>
                 {provider === 'fine-tuned' && (
                   <span className="typing-description">
-                    Investo is executing CPU GGUF inference. This may take 60-90 seconds...
+                    FinChat is executing CPU GGUF inference. This may take 60-90 seconds...
                   </span>
                 )}
               </div>
@@ -757,7 +757,7 @@ export default function App() {
               <input 
                 type="text" 
                 className="chat-text-input" 
-                placeholder="Ask Investo Bot a question..." 
+                placeholder="Ask FinChat a question..." 
                 value={chatInput}
                 onChange={e => setChatInput(e.target.value)}
               />

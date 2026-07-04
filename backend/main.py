@@ -108,7 +108,48 @@ def read_root():
 
 @app.get("/api/stock/{ticker}")
 def get_stock_data(ticker: str):
-    ticker = ticker.upper().strip()
+    ticker = ticker.strip()
+    
+    # Smart Ticker Resolver using Groq: resolves full names (e.g. "samsung", "google") to ticker symbols
+    resolved_ticker = ticker
+    is_standard_ticker = ticker.isalpha() and len(ticker) <= 5
+    
+    if (not is_standard_ticker or ticker.lower() == "samsung") and GROQ_API_KEY:
+        try:
+            print(f"Resolving ticker symbol for '{ticker}' using Groq...")
+            res_comp = requests.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {GROQ_API_KEY}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": "llama-3.1-8b-instant",
+                    "messages": [
+                        {
+                            "role": "system", 
+                            "content": "You are a financial stock ticker symbol resolver. Given a company name, description, or search term, respond with ONLY the primary stock ticker symbol (e.g., AAPL, GOOG, TSLA, MSFT, SSNLF, SMSN.IL). Do not write anything else. No explanation, no punctuation, no bolding. Just the uppercase ticker code. If you cannot determine it, output UNKNOWN."
+                        },
+                        {
+                            "role": "user",
+                            "content": f"Company: {ticker}"
+                        }
+                    ],
+                    "temperature": 0.0,
+                    "max_tokens": 10
+                },
+                timeout=4
+            )
+            if res_comp.ok:
+                resolved_val = res_comp.json()["choices"][0]["message"]["content"].strip().upper()
+                resolved_val = re.sub(r'[^A-Z0-9\.\-]', '', resolved_val)
+                if resolved_val and "UNKNOWN" not in resolved_val and len(resolved_val) <= 10:
+                    print(f"✓ Groq resolved '{ticker}' to ticker symbol '{resolved_val}'")
+                    resolved_ticker = resolved_val
+        except Exception as e:
+            print(f"Error resolving ticker via Groq: {e}")
+
+    ticker = resolved_ticker.upper()
     
     # 1. Fetch Real-time price and News from Finnhub
     price = 0.0
@@ -120,9 +161,14 @@ def get_stock_data(ticker: str):
         try:
             q_res = requests.get(f"https://finnhub.io/api/v1/quote?symbol={ticker}&token={FINNHUB_API_KEY}").json()
             if q_res:
-                price = q_res.get("c", 0.0)
-                change = q_res.get("d", 0.0)
-                change_percent = q_res.get("dp", 0.0)
+                raw_price = q_res.get("c")
+                price = float(raw_price) if raw_price is not None else 0.0
+                
+                raw_change = q_res.get("d")
+                change = float(raw_change) if raw_change is not None else 0.0
+                
+                raw_change_percent = q_res.get("dp")
+                change_percent = float(raw_change_percent) if raw_change_percent is not None else 0.0
         except Exception as e:
             print(f"Error fetching Finnhub quote: {e}")
             

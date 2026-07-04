@@ -481,19 +481,19 @@ export default function App() {
             </div>
             <div className="overview-card">
               <span className="card-label">LAST PRICE</span>
-              <span className="card-value">${stock.price.toFixed(2)}</span>
+              <span className="card-value">${(stock.price ?? 0).toFixed(2)}</span>
             </div>
             <div className="overview-card">
               <span className="card-label">CHANGE</span>
               <span className={`card-change ${isUp ? 'up' : 'down'}`}>
                 {isUp ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
-                <span>{isUp ? '+' : ''}{stock.change.toFixed(2)}</span>
+                <span>{isUp ? '+' : ''}{(stock.change ?? 0).toFixed(2)}</span>
               </span>
             </div>
             <div className="overview-card">
               <span className="card-label">CHANGE %</span>
               <span className={`card-change ${isUp ? 'up' : 'down'}`}>
-                <span>{isUp ? '+' : ''}{stock.changePercent.toFixed(2)}%</span>
+                <span>{isUp ? '+' : ''}{(stock.changePercent ?? 0).toFixed(2)}%</span>
               </span>
             </div>
           </div>

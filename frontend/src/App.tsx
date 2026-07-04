@@ -723,7 +723,7 @@ export default function App() {
                 </div>
                 {provider === 'fine-tuned' && (
                   <span className="typing-description">
-                    FinChat is executing CPU GGUF inference. This may take 60-90 seconds...
+                    FinChat is executing CPU GGUF inference. This may take 60-90 seconds, and responses are limited to 150-200 tokens due to compute limitations...
                   </span>
                 )}
               </div>

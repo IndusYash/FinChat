@@ -106,6 +106,22 @@ def read_root():
         "retriever": retriever is not None
     }
 
+@app.get("/api/health")
+def api_health():
+    return {
+        "status": "online",
+        "engine": "FinancialAgentEngine & Coordinator",
+        "tools": [
+            "get_live_quote",
+            "get_fundamentals",
+            "run_dcf_valuation",
+            "run_monte_carlo",
+            "search_knowledge_base",
+            "pinecone_rag",
+            "groq_cloud",
+        ],
+    }
+
 @app.get("/api/stock/{ticker}")
 def get_stock_data(ticker: str):
     ticker = ticker.strip()

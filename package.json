@@ -1,0 +1,7 @@
+{
+  "name": "finchat-project",
+  "private": true,
+  "scripts": {
+    "build": "npm run build --prefix frontend"
+  }
+}

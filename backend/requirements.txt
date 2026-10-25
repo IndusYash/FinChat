@@ -12,9 +12,7 @@ numpy>=1.24.0
 # LLM Generation (API-driven)
 google-generativeai>=0.3.0
 
-# Financial Analytics & Quant Engine
+# Financial Analytics
 pandas>=2.0.0
 yfinance>=0.2.40
-plotly>=5.20.0
-streamlit>=1.35.0
 

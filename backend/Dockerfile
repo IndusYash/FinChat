@@ -28,7 +28,7 @@ COPY --chown=user:user requirements.txt .
 RUN pip install --no-cache-dir --user -r requirements.txt
 
 # Copy backend files
-COPY --chown=user:user main.py .
+COPY --chown=user:user . .
 
 # Expose port 7860 (Hugging Face Spaces default)
 EXPOSE 7860

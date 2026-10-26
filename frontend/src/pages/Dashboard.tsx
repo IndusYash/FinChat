@@ -1,8 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Search, Send, ArrowUpRight, Wrench, FileText } from 'lucide-react';
+import { Search, Send, ArrowUpRight, Wrench, FileText, Share2, Check, HelpCircle } from 'lucide-react';
 import type { StockData, Message } from '../types';
 import { ResearchMemoModal } from '../components/ResearchMemoModal';
 import { StockComparison } from '../components/StockComparison';
+import { WatchlistBar } from '../components/WatchlistBar';
+import { WhatIfCalculator } from '../components/WhatIfCalculator';
 import { checkBackendHealth } from '../services/api';
 
 interface DashboardProps {
@@ -36,6 +38,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const [showMemo, setShowMemo] = useState(false);
   const [viewMode, setViewMode] = useState<'SINGLE' | 'COMPARE'>('SINGLE');
   const [backendOnline, setBackendOnline] = useState<boolean | null>(null);
+  const [plainEnglish, setPlainEnglish] = useState(false);
+  const [shareToast, setShareToast] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -51,6 +55,19 @@ export const Dashboard: React.FC<DashboardProps> = ({
     if (!inputQuestion.trim()) return;
     onSendMessage(inputQuestion.trim());
     setInputQuestion('');
+  };
+
+  const handleShareStock = () => {
+    const text = `📈 FINCHAT BRIEF: ${currentStock.name} ($${currentStock.symbol})
+• Price: $${currentStock.price.toFixed(2)} (${currentStock.changePct >= 0 ? '+' : ''}${currentStock.changePct.toFixed(2)}%)
+• Market Cap: ${currentStock.marketCap} | P/E: ${currentStock.peRatio}x
+• Consensus: ${currentStock.buyPct}% BUY / ${currentStock.holdPct}% HOLD
+• Fair Value (DCF): $${(currentStock.price * 0.92).toFixed(1)} - $${(currentStock.price * 1.08).toFixed(1)}
+Explore on FinChat: https://investo-bot-xi.vercel.app/`;
+
+    navigator.clipboard.writeText(text);
+    setShareToast(true);
+    setTimeout(() => setShareToast(false), 2500);
   };
 
   // SVG Chart rendering
@@ -154,13 +171,57 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
               <button
                 type="button"
+                onClick={() => setPlainEnglish(!plainEnglish)}
+                className="mono"
+                style={{
+                  backgroundColor: plainEnglish ? '#ECFDF5' : '#FFFFFF',
+                  color: plainEnglish ? '#065F46' : '#374151',
+                  border: `1px solid ${plainEnglish ? '#10B981' : '#D1D5DB'}`,
+                  padding: '4px 9px',
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                }}
+                title="Toggle beginner-friendly plain-English financial translations"
+              >
+                <HelpCircle size={12} color={plainEnglish ? '#10B981' : '#6B7280'} />
+                {plainEnglish ? '👶 ELI5: ON' : '👶 ELI5'}
+              </button>
+
+              <button
+                type="button"
+                onClick={handleShareStock}
+                className="mono hover-card"
+                style={{
+                  backgroundColor: '#FFFFFF',
+                  color: '#000000',
+                  border: '1px solid #000000',
+                  padding: '4px 9px',
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                }}
+                title="Copy formatted stock card to clipboard for WhatsApp, Discord, or Twitter"
+              >
+                {shareToast ? <Check size={12} color="#10B981" /> : <Share2 size={12} />}
+                {shareToast ? 'COPIED!' : 'SHARE'}
+              </button>
+
+              <button
+                type="button"
                 onClick={() => setShowMemo(true)}
                 className="mono hover-card"
                 style={{
                   backgroundColor: '#FFFFFF',
                   color: '#000000',
                   border: '1px solid #000000',
-                  padding: '4px 12px',
+                  padding: '4px 11px',
                   fontSize: '11px',
                   fontWeight: 700,
                   cursor: 'pointer',
@@ -184,6 +245,15 @@ export const Dashboard: React.FC<DashboardProps> = ({
             />
           ) : (
             <>
+              {/* Watchlist Bar */}
+              <WatchlistBar
+                activeSymbol={activeSymbol}
+                onSelectSymbol={(sym) => {
+                  onSearchChange(sym);
+                  onSearchSubmit();
+                }}
+              />
+
               {/* Search Bar */}
               <form onSubmit={onSearchSubmit} style={{ display: 'flex', marginBottom: '14px' }}>
                 <input
@@ -358,6 +428,61 @@ export const Dashboard: React.FC<DashboardProps> = ({
             })}
           </svg>
         </div>
+
+        {/* Plain-English Translator Box when ELI5 mode is active */}
+        {plainEnglish && (
+          <div
+            style={{
+              backgroundColor: '#EFF6FF',
+              border: '1px solid #BFDBFE',
+              padding: '12px 16px',
+              marginBottom: '20px',
+              fontSize: '11px',
+              color: '#1E3A8A',
+              lineHeight: 1.6,
+            }}
+          >
+            <div
+              className="mono"
+              style={{
+                fontWeight: 800,
+                marginBottom: '6px',
+                fontSize: '11px',
+                color: '#1E40AF',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '5px',
+              }}
+            >
+              <HelpCircle size={13} /> 👶 PLAIN-ENGLISH TRANSLATION FOR {currentStock.symbol} ({currentStock.name}):
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+              <div>
+                <strong>• What is this company's total price tag?</strong>
+                <p style={{ margin: '2px 0 8px 0', color: '#374151' }}>
+                  Market Cap is <strong>{currentStock.marketCap}</strong>. That is how much total money it would take if you bought every single share of the company in the world.
+                </p>
+                <strong>• Are you paying a premium? (P/E Ratio)</strong>
+                <p style={{ margin: '2px 0 0 0', color: '#374151' }}>
+                  P/E is <strong>{currentStock.peRatio}x</strong>. You are paying ${currentStock.peRatio} today for every $1 of real profit {currentStock.name} earns annually.
+                </p>
+              </div>
+              <div>
+                <strong>• What do Wall Street analysts say?</strong>
+                <p style={{ margin: '2px 0 8px 0', color: '#374151' }}>
+                  <strong>{currentStock.buyPct}%</strong> of major bank analysts recommend BUYING, while <strong>{currentStock.holdPct}%</strong> say keep holding what you own.
+                </p>
+                <strong>• Everyday Price Action:</strong>
+                <p style={{ margin: '2px 0 0 0', color: '#374151' }}>
+                  Currently trading at <strong>${currentStock.price.toFixed(2)}</strong> ({currentStock.changePct >= 0 ? '+' : ''}{currentStock.changePct.toFixed(2)}% recently).
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Historical "What If" Investment Simulator */}
+        <WhatIfCalculator stock={currentStock} />
 
         {/* Bottom Row: Company Key Stats & Wall Street Consensus */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>

@@ -12,7 +12,9 @@ numpy>=1.24.0
 # LLM Generation (API-driven)
 google-generativeai>=0.3.0
 
-# Financial Analytics
+# Financial Analytics & Document Parsing
 pandas>=2.0.0
 yfinance>=0.2.40
+python-multipart>=0.0.9
+pypdf>=4.0.0
 

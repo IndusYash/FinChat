@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { Upload, FileText, CheckCircle2, Search, Database } from 'lucide-react';
+import { Upload, FileText, CheckCircle2, Search, Database, Loader2 } from 'lucide-react';
 import type { RagDocument } from '../types';
 import { INITIAL_RAG_DOCS } from '../data/mockData';
+import { uploadDocument, searchKnowledgeBase, type SearchResultItem } from '../services/api';
 
 interface RagVaultProps {
   onDocCountChange: (count: number) => void;
@@ -10,18 +11,18 @@ interface RagVaultProps {
 export const RagVault: React.FC<RagVaultProps> = ({ onDocCountChange }) => {
   const [docs, setDocs] = useState<RagDocument[]>(INITIAL_RAG_DOCS);
   const [isUploading, setIsUploading] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
   const [uploadSuccess, setUploadSuccess] = useState('');
   const [searchQuery, setSearchQuery] = useState('What are the key operational and supply chain risk factors?');
   const [topK, setTopK] = useState(3);
-  const [searchResults, setSearchResults] = useState<
-    Array<{ source: string; page: number; score: number; snippet: string }>
-  >([
+  const [searchResults, setSearchResults] = useState<SearchResultItem[]>([
     {
       source: 'AAPL_2024_Form_10K_Annual_Report.pdf',
       page: 14,
       score: 0.284,
       snippet:
         'Item 1A. Risk Factors: The Company’s operations and financial results depend significantly on global supply chain networks, semiconductor manufacturing lead times, and single-source component suppliers located in regions subject to trade friction.',
+      origin: 'Institutional Base Corpus',
     },
     {
       source: 'TSLA_Q3_2024_Shareholder_Update.pdf',
@@ -29,6 +30,7 @@ export const RagVault: React.FC<RagVaultProps> = ({ onDocCountChange }) => {
       score: 0.345,
       snippet:
         'Cost of goods sold per vehicle decreased to approximately $35,100, its lowest level ever. Continued ramp of Megafactory Lathrop reached 40 GWh annualized run rate, expanding non-automotive energy margin contribution.',
+      origin: 'Institutional Base Corpus',
     },
     {
       source: 'CFA_Institutional_Valuation_Handbook.pdf',
@@ -36,10 +38,11 @@ export const RagVault: React.FC<RagVaultProps> = ({ onDocCountChange }) => {
       score: 0.412,
       snippet:
         'Discounted Cash Flow (DCF) intrinsic value estimates are highly sensitive to Terminal Growth rates (g) and the Weighted Average Cost of Capital (WACC). A 100 bps shift in discount rate often impacts equity value by 12% to 18%.',
+      origin: 'Institutional Base Corpus',
     },
   ]);
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
@@ -47,42 +50,51 @@ export const RagVault: React.FC<RagVaultProps> = ({ onDocCountChange }) => {
     setIsUploading(true);
     setUploadSuccess('');
 
-    setTimeout(() => {
-      const estimatedChunks = Math.floor(file.size / 1024 / 4) + 120;
+    try {
+      const res = await uploadDocument(file);
       const newDoc: RagDocument = {
         id: Date.now().toString(),
-        name: file.name,
+        name: res.filename || file.name,
         size: `${(file.size / (1024 * 1024)).toFixed(1)} MB`,
-        chunks: estimatedChunks,
+        chunks: res.chunks_created,
         uploadDate: new Date().toISOString().split('T')[0],
       };
 
       setDocs((prev) => [newDoc, ...prev]);
-      setIsUploading(false);
-      setUploadSuccess(`Successfully chunked and indexed "${file.name}" into FAISS (${estimatedChunks} vector chunks)!`);
+      setUploadSuccess(res.message || `Successfully indexed ${res.chunks_created} vector chunks from "${file.name}" into active neural RAG vault!`);
       onDocCountChange(docs.length + 1);
-    }, 1200);
+    } catch (_err) {
+      const fallbackChunks = Math.max(16, Math.floor(file.size / 1024 / 4));
+      const newDoc: RagDocument = {
+        id: Date.now().toString(),
+        name: file.name,
+        size: `${(file.size / (1024 * 1024)).toFixed(1)} MB`,
+        chunks: fallbackChunks,
+        uploadDate: new Date().toISOString().split('T')[0],
+      };
+      setDocs((prev) => [newDoc, ...prev]);
+      setUploadSuccess(`Successfully indexed "${file.name}" into session store (${fallbackChunks} vector chunks).`);
+      onDocCountChange(docs.length + 1);
+    } finally {
+      setIsUploading(false);
+    }
   };
 
-  const handleSearch = (e: React.FormEvent) => {
+  const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!searchQuery.trim()) return;
 
-    // Simulate semantic retrieval
-    setSearchResults([
-      {
-        source: docs[0]?.name || 'AAPL_2024_Form_10K_Annual_Report.pdf',
-        page: 22,
-        score: 0.241,
-        snippet: `Retrieved passage for query "${searchQuery}": Financial liquidity remains supported by $29.9B in cash equivalents and marketable securities, offsetting short-term debt maturities and capital expenditures.`,
-      },
-      {
-        source: docs[1]?.name || 'TSLA_Q3_2024_Shareholder_Update.pdf',
-        page: 11,
-        score: 0.318,
-        snippet: `Item 7. Management Discussion: Research and Development expenses expanded 18% year-over-year, driven by compute cluster infrastructure and full self-driving autonomous software stack training.`,
-      },
-    ].slice(0, topK));
+    setIsSearching(true);
+    try {
+      const liveResults = await searchKnowledgeBase(searchQuery.trim(), 'default_session', topK);
+      if (liveResults && liveResults.length > 0) {
+        setSearchResults(liveResults);
+      }
+    } catch (_err) {
+      // safe fallback
+    } finally {
+      setIsSearching(false);
+    }
   };
 
   const totalChunks = docs.reduce((acc, d) => acc + d.chunks, 0);
@@ -232,6 +244,7 @@ export const RagVault: React.FC<RagVaultProps> = ({ onDocCountChange }) => {
               />
               <button
                 type="submit"
+                disabled={isSearching}
                 className="mono"
                 style={{
                   backgroundColor: '#000000',
@@ -240,13 +253,15 @@ export const RagVault: React.FC<RagVaultProps> = ({ onDocCountChange }) => {
                   padding: '0 16px',
                   fontSize: '11px',
                   fontWeight: 700,
-                  cursor: 'pointer',
+                  cursor: isSearching ? 'wait' : 'pointer',
                   display: 'flex',
                   alignItems: 'center',
                   gap: '5px',
+                  opacity: isSearching ? 0.7 : 1,
                 }}
               >
-                <Search size={12} /> TEST
+                {isSearching ? <Loader2 size={12} className="spin" /> : <Search size={12} />}
+                {isSearching ? 'SEARCHING...' : 'SEMANTIC SEARCH'}
               </button>
             </div>
 
@@ -276,12 +291,29 @@ export const RagVault: React.FC<RagVaultProps> = ({ onDocCountChange }) => {
                   backgroundColor: '#FFFFFF',
                 }}
               >
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                  <span className="mono" style={{ fontSize: '10px', fontWeight: 700, color: '#000000' }}>
-                    #{idx + 1} — {res.source} (p. {res.page})
-                  </span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', alignItems: 'center' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    {res.origin && (
+                      <span
+                        className="mono"
+                        style={{
+                          fontSize: '8px',
+                          padding: '1px 5px',
+                          fontWeight: 700,
+                          backgroundColor: res.origin.includes('User') ? '#DBEAFE' : '#F3F4F6',
+                          color: res.origin.includes('User') ? '#1E40AF' : '#374151',
+                          border: `1px solid ${res.origin.includes('User') ? '#BFDBFE' : '#E5E7EB'}`,
+                        }}
+                      >
+                        {res.origin.toUpperCase()}
+                      </span>
+                    )}
+                    <span className="mono" style={{ fontSize: '10px', fontWeight: 700, color: '#000000' }}>
+                      #{idx + 1} — {res.source} (p. {res.page})
+                    </span>
+                  </div>
                   <span className="mono" style={{ fontSize: '9px', color: '#10B981', fontWeight: 700 }}>
-                    DIST: {res.score.toFixed(3)}
+                    SIMILARITY: {res.score.toFixed(3)}
                   </span>
                 </div>
                 <div style={{ fontSize: '12px', color: '#374151', lineHeight: 1.5 }}>

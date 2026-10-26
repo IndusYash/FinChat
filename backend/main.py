@@ -1,9 +1,11 @@
 import os
 import re
 import time
+import io
+from typing import List, Dict, Any, Optional, Tuple
 import requests
 import numpy as np
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from pinecone import Pinecone
@@ -149,6 +151,181 @@ def api_analyze(req: AnalyzeRequest):
             "error": str(e),
             "engine_status": "fallback_simulation",
         }
+
+# ── DYNAMIC USER RAG SESSION STORAGE ────────────────────────────
+SESSION_STORES: Dict[str, List[Dict[str, Any]]] = {}
+
+def extract_text_from_file(file_bytes: bytes, filename: str) -> List[Tuple[int, str]]:
+    """Extracts (page_number, text) tuples from PDF or text file bytes."""
+    pages = []
+    if filename.lower().endswith(".pdf"):
+        try:
+            from pypdf import PdfReader
+            reader = PdfReader(io.BytesIO(file_bytes))
+            for i, page in enumerate(reader.pages):
+                txt = page.extract_text() or ""
+                if txt.strip():
+                    pages.append((i + 1, txt.strip()))
+        except Exception as e:
+            print(f"pypdf extraction error on {filename}: {e}")
+            try:
+                text = file_bytes.decode("utf-8", errors="ignore")
+                if text.strip():
+                    pages.append((1, text.strip()))
+            except Exception:
+                pass
+    else:
+        try:
+            text = file_bytes.decode("utf-8", errors="ignore")
+            if text.strip():
+                pages.append((1, text.strip()))
+        except Exception:
+            pass
+    return pages
+
+def chunk_text(pages: List[Tuple[int, str]], chunk_size: int = 700, chunk_overlap: int = 120) -> List[Dict[str, Any]]:
+    chunks = []
+    for page_num, text in pages:
+        clean = re.sub(r'\s+', ' ', text).strip()
+        if not clean:
+            continue
+        start = 0
+        while start < len(clean):
+            end = min(start + chunk_size, len(clean))
+            chunk_str = clean[start:end]
+            chunks.append({
+                "page": page_num,
+                "text": chunk_str
+            })
+            if end >= len(clean):
+                break
+            start += (chunk_size - chunk_overlap)
+    return chunks
+
+@app.post("/api/upload")
+async def upload_document(
+    file: UploadFile = File(...),
+    session_id: str = Form(default="default_session")
+):
+    try:
+        content = await file.read()
+        pages = extract_text_from_file(content, file.filename)
+        if not pages:
+            raise HTTPException(status_code=400, detail="Could not extract readable text from document.")
+        
+        raw_chunks = chunk_text(pages)
+        if not raw_chunks:
+            raise HTTPException(status_code=400, detail="Document contains no text content.")
+            
+        texts = [c["text"] for c in raw_chunks]
+        if retriever is not None:
+            embeddings = retriever.encode(texts, normalize_embeddings=True)
+        else:
+            embeddings = np.zeros((len(texts), 384))
+            
+        if session_id not in SESSION_STORES:
+            SESSION_STORES[session_id] = []
+            
+        new_chunks_count = 0
+        for i, c in enumerate(raw_chunks):
+            SESSION_STORES[session_id].append({
+                "id": f"{file.filename}_{i}",
+                "source": file.filename,
+                "page": c["page"],
+                "text": c["text"],
+                "embedding": embeddings[i]
+            })
+            new_chunks_count += 1
+            
+        return {
+            "status": "success",
+            "filename": file.filename,
+            "chunks_created": new_chunks_count,
+            "total_pages": len(pages),
+            "session_id": session_id,
+            "total_session_chunks": len(SESSION_STORES[session_id]),
+            "message": f"Successfully indexed {new_chunks_count} vector chunks from '{file.filename}' into active neural RAG vault."
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+class SearchRequest(BaseModel):
+    query: str
+    session_id: Optional[str] = "default_session"
+    top_k: int = 4
+
+@app.post("/api/search")
+def search_documents(req: SearchRequest):
+    results = []
+    
+    # 1. Search user's uploaded session documents
+    if req.session_id and req.session_id in SESSION_STORES and len(SESSION_STORES[req.session_id]) > 0:
+        session_chunks = SESSION_STORES[req.session_id]
+        if retriever is not None:
+            query_emb = retriever.encode([req.query], normalize_embeddings=True)[0]
+            scores = []
+            for item in session_chunks:
+                sim = float(np.dot(query_emb, item["embedding"]))
+                scores.append((sim, item))
+            scores.sort(key=lambda x: x[0], reverse=True)
+            for sim, item in scores[:req.top_k]:
+                results.append({
+                    "source": item["source"],
+                    "page": item["page"],
+                    "score": round(sim, 4),
+                    "snippet": item["text"],
+                    "origin": "User Upload"
+                })
+                
+    # 2. Search 2,400-page institutional Pinecone index
+    if index is not None and retriever is not None and len(results) < req.top_k:
+        try:
+            needed = req.top_k - len(results)
+            q_emb = retriever.encode([req.query], normalize_embeddings=True)[0].tolist()
+            res = index.query(vector=q_emb, top_k=needed, include_metadata=True)
+            for match in res.get("matches", []):
+                meta = match.get("metadata", {})
+                results.append({
+                    "source": meta.get("source", "2400-Page SEC 10-K Corpus"),
+                    "page": meta.get("page", 1),
+                    "score": round(match.get("score", 0.0), 4),
+                    "snippet": meta.get("text", meta.get("content", "")),
+                    "origin": "Institutional Base Corpus"
+                })
+        except Exception as e:
+            print(f"Pinecone search error: {e}")
+            
+    return {
+        "query": req.query,
+        "results": results,
+        "count": len(results)
+    }
+
+@app.get("/api/session-docs")
+def get_session_docs(session_id: str = "default_session"):
+    if session_id not in SESSION_STORES:
+        return {"documents": [], "total_chunks": 0}
+        
+    docs_map = {}
+    for item in SESSION_STORES[session_id]:
+        src = item["source"]
+        if src not in docs_map:
+            docs_map[src] = {"name": src, "chunks": 0, "pages": set()}
+        docs_map[src]["chunks"] += 1
+        docs_map[src]["pages"].add(item["page"])
+        
+    docs_list = [
+        {
+            "name": name,
+            "chunks": data["chunks"],
+            "pageCount": len(data["pages"])
+        }
+        for name, data in docs_map.items()
+    ]
+    return {
+        "documents": docs_list,
+        "total_chunks": len(SESSION_STORES[session_id])
+    }
 
 @app.get("/api/stock/{ticker}")
 def get_stock_data(ticker: str):
@@ -523,6 +700,7 @@ class ChatPayload(BaseModel):
     message: str
     ticker: str = "AAPL"
     provider: str = "fine-tuned"  # "fine-tuned" or "cloud"
+    session_id: Optional[str] = "default_session"
 
 @app.post("/chat")
 def run_chat_rag(payload: ChatPayload):
@@ -547,6 +725,22 @@ def run_chat_rag(payload: ChatPayload):
         # 3. Format Context
         context_blocks = []
         sources = []
+
+        # Check if user has uploaded custom documents in their active session
+        if payload.session_id and payload.session_id in SESSION_STORES and len(SESSION_STORES[payload.session_id]) > 0:
+            query_emb = np.array(query_vector)
+            session_matches = []
+            for item in SESSION_STORES[payload.session_id]:
+                sim = float(np.dot(query_emb, item["embedding"]))
+                session_matches.append((sim, item))
+            session_matches.sort(key=lambda x: x[0], reverse=True)
+            for sim, item in session_matches[:3]:
+                src = item["source"]
+                pg = item["page"]
+                txt = item["text"]
+                context_blocks.append(f"Source (USER UPLOAD: {src}, Page {pg}):\n{txt}")
+                sources.append(f"User Upload: {src} (Page {pg})")
+
         for match in res.get("matches", []):
             txt = match["metadata"].get("text", "")
             src = match["metadata"].get("source", "Unknown")

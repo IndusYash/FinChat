@@ -799,7 +799,12 @@ def extract_mentioned_ticker(message: str):
     return None
 
 GROQ_MODEL = "qwen/qwen3.8-27b"
-OPENROUTER_FREE_MODEL = "google/gemma-4-31b-it:free"
+OPENROUTER_FREE_MODEL = "nvidia/nemotron-3.5-lightning:free"
+OPENROUTER_FALLBACK_MODELS = [
+    "nvidia/nemotron-3.5-lightning:free",
+    "liquid/lfm-2.5-2.6b:free",
+    "google/gemma-4-31b-it:free"
+]
 
 class ExtractTickerRequest(BaseModel):
     query: str
@@ -863,54 +868,55 @@ def extract_ticker_with_openrouter(query: str) -> Dict[str, Any]:
                 print(f"Groq ticker attempt {attempt} error: {e}")
                 time.sleep(0.3 * attempt)
 
-    # 2. FALLBACK: Free OpenRouter model
+    # 2. FALLBACK: Free OpenRouter models
     if OPENROUTER_API_KEY:
-        try:
-            print(f"Fallback: Identifying ticker for '{query}' using Free OpenRouter model ({OPENROUTER_FREE_MODEL})...")
-            res = requests.post(
-                "https://openrouter.ai/api/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-                    "Content-Type": "application/json",
-                    "HTTP-Referer": "http://localhost:8000",
-                    "X-Title": "Investo Bot Ticker Extractor"
-                },
-                json={
-                    "model": OPENROUTER_FREE_MODEL,
-                    "messages": [
-                        {
-                            "role": "system",
-                            "content": (
-                                "You are a financial stock ticker extraction tool. Analyze the user query and identify if it mentions a company, stock, or brand.\n"
-                                "Return ONLY a raw JSON object with keys 'ticker' and 'company'.\n"
-                                "If it is an Indian company, append .NS (e.g., RELIANCE.NS, TCS.NS, INFY.NS).\n"
-                                "If US/Global, return the standard ticker (e.g., AAPL, MSFT, GOOGL, NVDA, ACN).\n"
-                                "If no company is mentioned, return {\"ticker\": null, \"company\": null}.\n"
-                                "Output ONLY valid JSON without markdown code fences."
-                            )
-                        },
-                        {
-                            "role": "user",
-                            "content": query
-                        }
-                    ],
-                    "temperature": 0.0,
-                    "max_tokens": 50
-                },
-                timeout=6
-            )
-            if res.ok:
-                raw_text = res.json()["choices"][0]["message"]["content"].strip()
-                raw_text = re.sub(r'^```json\s*', '', raw_text)
-                raw_text = re.sub(r'^```\s*', '', raw_text)
-                raw_text = re.sub(r'```$', '', raw_text).strip()
-                parsed = json.loads(raw_text)
-                t = parsed.get("ticker")
-                if t and isinstance(t, str) and t.upper() not in ("NULL", "NONE", "UNKNOWN"):
-                    cleaned_t = re.sub(r'[^A-Z0-9\.\^]', '', t.upper())
-                    return {"ticker": cleaned_t, "company": parsed.get("company"), "found": True, "provider": "openrouter"}
-        except Exception as e:
-            print(f"OpenRouter fallback ticker extraction error: {e}")
+        for or_model in OPENROUTER_FALLBACK_MODELS:
+            try:
+                print(f"Fallback: Identifying ticker for '{query}' using Free OpenRouter model ({or_model})...")
+                res = requests.post(
+                    "https://openrouter.ai/api/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                        "Content-Type": "application/json",
+                        "HTTP-Referer": "http://localhost:8000",
+                        "X-Title": "Investo Bot Ticker Extractor"
+                    },
+                    json={
+                        "model": or_model,
+                        "messages": [
+                            {
+                                "role": "system",
+                                "content": (
+                                    "You are a financial stock ticker extraction tool. Analyze the user query and identify if it mentions a company, stock, or brand.\n"
+                                    "Return ONLY a raw JSON object with keys 'ticker' and 'company'.\n"
+                                    "If it is an Indian company, append .NS (e.g., RELIANCE.NS, TCS.NS, INFY.NS).\n"
+                                    "If US/Global, return the standard ticker (e.g., AAPL, MSFT, GOOGL, NVDA, ACN).\n"
+                                    "If no company is mentioned, return {\"ticker\": null, \"company\": null}.\n"
+                                    "Output ONLY valid JSON without markdown code fences."
+                                )
+                            },
+                            {
+                                "role": "user",
+                                "content": query
+                            }
+                        ],
+                        "temperature": 0.0,
+                        "max_tokens": 50
+                    },
+                    timeout=6
+                )
+                if res.ok:
+                    raw_text = res.json()["choices"][0]["message"]["content"].strip()
+                    raw_text = re.sub(r'^```json\s*', '', raw_text)
+                    raw_text = re.sub(r'^```\s*', '', raw_text)
+                    raw_text = re.sub(r'```$', '', raw_text).strip()
+                    parsed = json.loads(raw_text)
+                    t = parsed.get("ticker")
+                    if t and isinstance(t, str) and t.upper() not in ("NULL", "NONE", "UNKNOWN"):
+                        cleaned_t = re.sub(r'[^A-Z0-9\.\^]', '', t.upper())
+                        return {"ticker": cleaned_t, "company": parsed.get("company"), "found": True, "provider": f"openrouter ({or_model})"}
+            except Exception as e:
+                print(f"OpenRouter ({or_model}) ticker extraction error: {e}")
 
     # 3. FINAL SAFETY NET: Local rule-based keyword mapping
     lower_q = query.lower()
@@ -1087,34 +1093,36 @@ def api_rag_query(payload: RagQueryPayload):
                     print(f"Groq General Search attempt {attempt} error: {e}")
                     time.sleep(0.3 * attempt)
 
-        # 2. FALLBACK: Free OpenRouter model only if Groq failed or key absent
+        # 2. FALLBACK: Free OpenRouter models only if Groq failed or key absent
         if not answer and OPENROUTER_API_KEY:
-            try:
-                print(f"Fallback: General Search via Free OpenRouter model ({OPENROUTER_FREE_MODEL})...")
-                r = requests.post(
-                    "https://openrouter.ai/api/v1/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-                        "Content-Type": "application/json",
-                        "HTTP-Referer": "http://localhost:8000",
-                        "X-Title": "Investo Bot General Search"
-                    },
-                    json={
-                        "model": OPENROUTER_FREE_MODEL,
-                        "messages": [
-                            {"role": "system", "content": "You are FinChat, an expert AI financial analyst. Answer clearly and comprehensively."},
-                            {"role": "user", "content": general_prompt}
-                        ],
-                        "temperature": 0.6,
-                        "max_tokens": 400
-                    },
-                    timeout=15
-                )
-                if r.ok:
-                    answer = r.json()["choices"][0]["message"]["content"].strip()
-                    model_used = f"OpenRouter Fallback ({OPENROUTER_FREE_MODEL})"
-            except Exception as e:
-                print(f"OpenRouter general search error: {e}")
+            for or_model in OPENROUTER_FALLBACK_MODELS:
+                try:
+                    print(f"Fallback: General Search via Free OpenRouter model ({or_model})...")
+                    r = requests.post(
+                        "https://openrouter.ai/api/v1/chat/completions",
+                        headers={
+                            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                            "Content-Type": "application/json",
+                            "HTTP-Referer": "http://localhost:8000",
+                            "X-Title": "Investo Bot General Search"
+                        },
+                        json={
+                            "model": or_model,
+                            "messages": [
+                                {"role": "system", "content": "You are FinChat, an expert AI financial analyst. Answer clearly and comprehensively."},
+                                {"role": "user", "content": general_prompt}
+                            ],
+                            "temperature": 0.6,
+                            "max_tokens": 400
+                        },
+                        timeout=15
+                    )
+                    if r.ok:
+                        answer = r.json()["choices"][0]["message"]["content"].strip()
+                        model_used = f"OpenRouter Fallback ({or_model})"
+                        break
+                except Exception as e:
+                    print(f"OpenRouter ({or_model}) general search error: {e}")
 
         if not answer:
             answer = f"Completed general market review for {payload.query}. Please check connectivity to AI providers."
@@ -1199,34 +1207,36 @@ def api_rag_query(payload: RagQueryPayload):
                     print(f"Groq RAG attempt {attempt} error: {e}")
                     time.sleep(0.3 * attempt)
 
-        # Fallback: Free OpenRouter model
+        # Fallback: Free OpenRouter models
         if not answer and OPENROUTER_API_KEY:
-            try:
-                print(f"Fallback: Querying Free OpenRouter Model ({OPENROUTER_FREE_MODEL}) with RAG context...")
-                r = requests.post(
-                    "https://openrouter.ai/api/v1/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-                        "Content-Type": "application/json",
-                        "HTTP-Referer": "http://localhost:8000",
-                        "X-Title": "Investo Bot Grounded RAG"
-                    },
-                    json={
-                        "model": OPENROUTER_FREE_MODEL,
-                        "messages": [
-                            {"role": "system", "content": system_instruction},
-                            {"role": "user", "content": payload.query}
-                        ],
-                        "temperature": 0.4,
-                        "max_tokens": 400
-                    },
-                    timeout=15
-                )
-                if r.ok:
-                    answer = r.json()["choices"][0]["message"]["content"].strip()
-                    model_used = f"OpenRouter Cloud Fallback ({OPENROUTER_FREE_MODEL})"
-            except Exception as e:
-                print(f"OpenRouter RAG generation error: {e}")
+            for or_model in OPENROUTER_FALLBACK_MODELS:
+                try:
+                    print(f"Fallback: Querying Free OpenRouter Model ({or_model}) with RAG context...")
+                    r = requests.post(
+                        "https://openrouter.ai/api/v1/chat/completions",
+                        headers={
+                            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                            "Content-Type": "application/json",
+                            "HTTP-Referer": "http://localhost:8000",
+                            "X-Title": "Investo Bot Grounded RAG"
+                        },
+                        json={
+                            "model": or_model,
+                            "messages": [
+                                {"role": "system", "content": system_instruction},
+                                {"role": "user", "content": payload.query}
+                            ],
+                            "temperature": 0.4,
+                            "max_tokens": 400
+                        },
+                        timeout=15
+                    )
+                    if r.ok:
+                        answer = r.json()["choices"][0]["message"]["content"].strip()
+                        model_used = f"OpenRouter Cloud Fallback ({or_model})"
+                        break
+                except Exception as e:
+                    print(f"OpenRouter ({or_model}) RAG generation error: {e}")
 
     if not answer:
         answer = f"Retrieved {len(matched_chunks)} relevant sources from RAG vault, but generation models were temporarily unavailable."

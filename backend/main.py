@@ -2,6 +2,7 @@ import os
 import re
 import time
 import io
+import json
 from typing import List, Dict, Any, Optional, Tuple
 import requests
 import numpy as np
@@ -796,6 +797,445 @@ def extract_mentioned_ticker(message: str):
     except Exception as e:
         print(f"Error in extract_mentioned_ticker: {e}")
     return None
+
+class ExtractTickerRequest(BaseModel):
+    query: str
+
+def extract_ticker_with_openrouter(query: str) -> Dict[str, Any]:
+    """
+    Identifies the relevant company and returns a valid ticker symbol.
+    Primary: Groq (llama-3.1-8b-instant) with at least 3 retry attempts.
+    Fallback: Free OpenRouter model (meta-llama/llama-3-8b-instruct:free).
+    Final Safety Net: Local rule-based dictionary.
+    """
+    # 1. PRIMARY: Try Groq with at least 3 attempts
+    if GROQ_API_KEY:
+        for attempt in range(1, 4):
+            try:
+                print(f"Identifying ticker via Groq (Attempt {attempt}/3) for '{query}'...")
+                res = requests.post(
+                    "https://api.groq.com/openai/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {GROQ_API_KEY}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "model": "llama-3.1-8b-instant",
+                        "messages": [
+                            {
+                                "role": "system",
+                                "content": (
+                                    "You are a financial stock ticker extraction tool. Identify if the user query mentions a company, stock, or brand.\n"
+                                    "Return ONLY a raw JSON object with keys 'ticker' and 'company'.\n"
+                                    "For Indian stocks append .NS (e.g. TCS.NS, RELIANCE.NS, INFY.NS, HDFCBANK.NS, TATAMOTORS.NS).\n"
+                                    "For US/global use the uppercase ticker (e.g. AAPL, ACN, MSFT, NVDA, TSLA).\n"
+                                    "If none, return {\"ticker\": null, \"company\": null}. No markdown code fences, no extra text."
+                                )
+                            },
+                            {
+                                "role": "user",
+                                "content": query
+                            }
+                        ],
+                        "temperature": 0.0,
+                        "max_tokens": 50
+                    },
+                    timeout=5
+                )
+                if res.ok:
+                    raw_text = res.json()["choices"][0]["message"]["content"].strip()
+                    raw_text = re.sub(r'^```json\s*', '', raw_text)
+                    raw_text = re.sub(r'^```\s*', '', raw_text)
+                    raw_text = re.sub(r'```$', '', raw_text).strip()
+                    parsed = json.loads(raw_text)
+                    t = parsed.get("ticker")
+                    if t and isinstance(t, str) and t.upper() not in ("NULL", "NONE", "UNKNOWN"):
+                        cleaned_t = re.sub(r'[^A-Z0-9\.\^]', '', t.upper())
+                        print(f"✓ Groq successfully extracted ticker '{cleaned_t}' on attempt {attempt}")
+                        return {"ticker": cleaned_t, "company": parsed.get("company"), "found": True, "provider": "groq"}
+                    elif parsed.get("ticker") is None:
+                        # Explicit negative detection
+                        return {"ticker": None, "company": None, "found": False, "provider": "groq"}
+            except Exception as e:
+                print(f"Groq ticker attempt {attempt} error: {e}")
+                time.sleep(0.3 * attempt)
+
+    # 2. FALLBACK: Free OpenRouter model (meta-llama/llama-3-8b-instruct:free)
+    if OPENROUTER_API_KEY:
+        try:
+            print(f"Fallback: Identifying ticker for '{query}' using Free OpenRouter model...")
+            res = requests.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                    "Content-Type": "application/json",
+                    "HTTP-Referer": "http://localhost:8000",
+                    "X-Title": "Investo Bot Ticker Extractor"
+                },
+                json={
+                    "model": "meta-llama/llama-3-8b-instruct:free",
+                    "messages": [
+                        {
+                            "role": "system",
+                            "content": (
+                                "You are a financial stock ticker extraction tool. Analyze the user query and identify if it mentions a company, stock, or brand.\n"
+                                "Return ONLY a raw JSON object with keys 'ticker' and 'company'.\n"
+                                "If it is an Indian company, append .NS (e.g., RELIANCE.NS, TCS.NS, INFY.NS).\n"
+                                "If US/Global, return the standard ticker (e.g., AAPL, MSFT, GOOGL, NVDA, ACN).\n"
+                                "If no company is mentioned, return {\"ticker\": null, \"company\": null}.\n"
+                                "Output ONLY valid JSON without markdown code fences."
+                            )
+                        },
+                        {
+                            "role": "user",
+                            "content": query
+                        }
+                    ],
+                    "temperature": 0.0,
+                    "max_tokens": 50
+                },
+                timeout=6
+            )
+            if res.ok:
+                raw_text = res.json()["choices"][0]["message"]["content"].strip()
+                raw_text = re.sub(r'^```json\s*', '', raw_text)
+                raw_text = re.sub(r'^```\s*', '', raw_text)
+                raw_text = re.sub(r'```$', '', raw_text).strip()
+                parsed = json.loads(raw_text)
+                t = parsed.get("ticker")
+                if t and isinstance(t, str) and t.upper() not in ("NULL", "NONE", "UNKNOWN"):
+                    cleaned_t = re.sub(r'[^A-Z0-9\.\^]', '', t.upper())
+                    return {"ticker": cleaned_t, "company": parsed.get("company"), "found": True, "provider": "openrouter"}
+        except Exception as e:
+            print(f"OpenRouter fallback ticker extraction error: {e}")
+
+    # 3. FINAL SAFETY NET: Local rule-based keyword mapping
+    lower_q = query.lower()
+    LOCAL_BRAND_MAP = {
+        "reliance": "RELIANCE.NS", "ril": "RELIANCE.NS", "jio": "RELIANCE.NS",
+        "tcs": "TCS.NS", "tata consultancy": "TCS.NS",
+        "infosys": "INFY.NS", "infy": "INFY.NS",
+        "hdfc": "HDFCBANK.NS", "hdfc bank": "HDFCBANK.NS",
+        "icici": "ICICIBANK.NS", "icicibank": "ICICIBANK.NS",
+        "sbi": "SBIN.NS", "state bank": "SBIN.NS",
+        "airtel": "BHARTIARTL.NS", "bharti": "BHARTIARTL.NS",
+        "itc": "ITC.NS",
+        "larsen": "LT.NS", "l&t": "LT.NS", "lt": "LT.NS",
+        "tata motors": "TATAMOTORS.NS", "tatamotors": "TATAMOTORS.NS",
+        "wipro": "WIPRO.NS", "adani": "ADANIENT.NS",
+        "maruti": "MARUTI.NS", "bajaj": "BAJFINANCE.NS",
+        "titan": "TITAN.NS", "sun pharma": "SUNPHARMA.NS",
+        "accenture": "ACN", "acn": "ACN",
+        "apple": "AAPL", "aapl": "AAPL", "iphone": "AAPL",
+        "microsoft": "MSFT", "msft": "MSFT",
+        "nvidia": "NVDA", "nvda": "NVDA",
+        "tesla": "TSLA", "tsla": "TSLA",
+        "amazon": "AMZN", "amzn": "AMZN",
+        "google": "GOOGL", "alphabet": "GOOGL", "googl": "GOOGL", "goog": "GOOGL",
+        "meta": "META", "facebook": "META",
+        "netflix": "NFLX", "intel": "INTC", "amd": "AMD",
+        "oracle": "ORCL", "ibm": "IBM", "uber": "UBER"
+    }
+    for brand, tick in LOCAL_BRAND_MAP.items():
+        if re.search(r'\b' + re.escape(brand) + r'\b', lower_q):
+            return {"ticker": tick, "company": brand.title(), "found": True, "provider": "local_rules"}
+
+    return {"ticker": None, "company": None, "found": False, "provider": "none"}
+
+@app.post("/api/extract-ticker")
+def api_extract_ticker(req: ExtractTickerRequest):
+    result = extract_ticker_with_openrouter(req.query)
+    return result
+
+class RagQueryPayload(BaseModel):
+    query: str
+    ticker: Optional[str] = "AAPL"
+    model_mode: str = "FINE-TUNED"  # "FINE-TUNED" or "CLOUD"
+    session_id: Optional[str] = "default_session"
+    allow_general_search: bool = False
+
+@app.post("/api/rag-query")
+def api_rag_query(payload: RagQueryPayload):
+    """
+    RAG Query Workflow:
+    1. Search active RAG Vault (user uploads + Pinecone SEC filings).
+    2. If matching documents are found, pass query + context into selected model.
+    3. If no matching documents found:
+       - If allow_general_search is False: disclose and request user choice.
+       - If allow_general_search is True: perform general OpenRouter financial search.
+    """
+    matched_chunks: List[Dict[str, Any]] = []
+    citations: List[Dict[str, Any]] = []
+
+    # 1. Search user session documents
+    if payload.session_id and payload.session_id in SESSION_STORES and len(SESSION_STORES[payload.session_id]) > 0:
+        session_chunks = SESSION_STORES[payload.session_id]
+        if retriever is not None:
+            try:
+                q_emb = retriever.encode([payload.query], normalize_embeddings=True)[0]
+                scored = []
+                for item in session_chunks:
+                    sim = float(np.dot(q_emb, item["embedding"]))
+                    scored.append((sim, item))
+                scored.sort(key=lambda x: x[0], reverse=True)
+                # Keep matches that meet similarity threshold (0.28)
+                for sim, item in scored[:4]:
+                    if sim >= 0.28:
+                        matched_chunks.append({
+                            "source": f"User Upload: {item['source']}",
+                            "page": item["page"],
+                            "text": item["text"],
+                            "score": sim,
+                            "origin": "User Vault"
+                        })
+                        citations.append({
+                            "source": item["source"],
+                            "page": item["page"],
+                            "snippet": item["text"][:200]
+                        })
+            except Exception as e:
+                print(f"Error searching session store: {e}")
+
+    # 2. Search Pinecone Institutional SEC 10-K Vault
+    if index is not None and retriever is not None and len(matched_chunks) < 4:
+        try:
+            q_emb = retriever.encode(payload.query, normalize_embeddings=True).tolist()
+            needed = 4 - len(matched_chunks)
+            res = index.query(vector=q_emb, top_k=needed, include_metadata=True)
+            for match in res.get("matches", []):
+                score = match.get("score", 0.0)
+                # Pinecone cosine score threshold for relevance
+                if score >= 0.28:
+                    meta = match.get("metadata", {})
+                    src = meta.get("source", "Institutional SEC Corpus")
+                    pg = meta.get("page", 1)
+                    txt = meta.get("text", meta.get("content", ""))
+                    if txt:
+                        matched_chunks.append({
+                            "source": src,
+                            "page": pg,
+                            "text": txt,
+                            "score": score,
+                            "origin": "Institutional Vault"
+                        })
+                        citations.append({
+                            "source": src,
+                            "page": pg,
+                            "snippet": txt[:200]
+                        })
+        except Exception as e:
+            print(f"Pinecone RAG search error: {e}")
+
+    # Case A: No matching documents found in RAG Vault
+    if not matched_chunks:
+        if not payload.allow_general_search:
+            return {
+                "found_documents": False,
+                "needs_user_choice": True,
+                "is_general_search": False,
+                "answer": (
+                    f"No matching documents were found in the RAG Vault for this query."
+                ),
+                "citations": [],
+                "query": payload.query,
+                "ticker": payload.ticker
+            }
+
+        # User elected to proceed with General Search
+        print(f"Executing General Search for: '{payload.query}'...")
+        general_prompt = (
+            f"You are FinChat, an expert institutional financial analyst. "
+            f"The user has asked: '{payload.query}' (focused on stock: {payload.ticker or 'Market'}).\n\n"
+            f"Provide a clear, detailed, and structured financial analysis answering their question directly. "
+            f"Cover relevant financial metrics, competitive positioning, and key market risk factors."
+        )
+
+        answer = ""
+        model_used = ""
+
+        # 1. PRIMARY: Try Groq at least 3 times
+        if GROQ_API_KEY:
+            for attempt in range(1, 4):
+                try:
+                    print(f"General Search via Groq (Attempt {attempt}/3)...")
+                    r = requests.post(
+                        "https://api.groq.com/openai/v1/chat/completions",
+                        headers={
+                            "Authorization": f"Bearer {GROQ_API_KEY}",
+                            "Content-Type": "application/json"
+                        },
+                        json={
+                            "model": "llama-3.1-8b-instant",
+                            "messages": [
+                                {"role": "system", "content": "You are FinChat, an expert AI financial analyst. Answer clearly and comprehensively."},
+                                {"role": "user", "content": general_prompt}
+                            ],
+                            "temperature": 0.6,
+                            "max_tokens": 400
+                        },
+                        timeout=10
+                    )
+                    if r.ok:
+                        answer = r.json()["choices"][0]["message"]["content"].strip()
+                        model_used = "Groq (llama-3.1-8b-instant)"
+                        print(f"✓ Groq General Search succeeded on attempt {attempt}")
+                        break
+                except Exception as e:
+                    print(f"Groq General Search attempt {attempt} error: {e}")
+                    time.sleep(0.3 * attempt)
+
+        # 2. FALLBACK: Free OpenRouter model only if Groq failed or key absent
+        if not answer and OPENROUTER_API_KEY:
+            try:
+                print("Fallback: General Search via Free OpenRouter model (meta-llama/llama-3-8b-instruct:free)...")
+                r = requests.post(
+                    "https://openrouter.ai/api/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                        "Content-Type": "application/json",
+                        "HTTP-Referer": "http://localhost:8000",
+                        "X-Title": "Investo Bot General Search"
+                    },
+                    json={
+                        "model": "meta-llama/llama-3-8b-instruct:free",
+                        "messages": [
+                            {"role": "system", "content": "You are FinChat, an expert AI financial analyst. Answer clearly and comprehensively."},
+                            {"role": "user", "content": general_prompt}
+                        ],
+                        "temperature": 0.6,
+                        "max_tokens": 400
+                    },
+                    timeout=15
+                )
+                if r.ok:
+                    answer = r.json()["choices"][0]["message"]["content"].strip()
+                    model_used = "OpenRouter Fallback (meta-llama/llama-3-8b-instruct:free)"
+            except Exception as e:
+                print(f"OpenRouter general search error: {e}")
+
+        if not answer:
+            answer = f"Completed general market review for {payload.query}. Please check connectivity to AI providers."
+
+        return {
+            "found_documents": False,
+            "needs_user_choice": False,
+            "is_general_search": True,
+            "answer": answer,
+            "citations": [],
+            "model_used": model_used
+        }
+
+    # Case B: Matching documents ARE found in the RAG Vault
+    context_blocks = []
+    for c in matched_chunks:
+        context_blocks.append(f"Source ({c['source']}, Page {c['page']}):\n{c['text']}")
+    context_text = "\n\n".join(context_blocks)
+
+    system_instruction = (
+        "You are FinChat, an expert AI financial assistant.\n"
+        "Answer the user's question accurately and objectively using ONLY the retrieved document sources below.\n"
+        "Cite the specific document sources and page numbers in your response.\n\n"
+        f"--- RETRIEVED RAG VAULT SOURCES ---\n{context_text}\n--- END SOURCES ---"
+    )
+
+    answer = ""
+    model_used = ""
+
+    # Mode 1: Fine-Tuned Model (Hugging Face GGUF Space)
+    if payload.model_mode == "FINE-TUNED":
+        try:
+            print(f"Querying Fine-tuned GGUF Space at {HF_SPACE_URL}/generate...")
+            gguf_prompt = (
+                f"<|start_header_id|>system<|end_header_id|>\n\n{system_instruction}<|eot_id|>"
+                f"<|start_header_id|>user<|end_header_id|>\n\n{payload.query}<|eot_id|>"
+                f"<|start_header_id|>assistant<|end_header_id|>\n\n"
+            )
+            r = requests.post(
+                f"{HF_SPACE_URL.rstrip('/')}/generate",
+                headers={"Content-Type": "application/json"},
+                json={"prompt": gguf_prompt, "max_tokens": 120},
+                timeout=60
+            )
+            if r.ok:
+                res_data = r.json()
+                answer = res_data.get("response", "").strip()
+                model_used = "Fine-Tuned GGUF Space (CPU)"
+        except Exception as e:
+            print(f"Fine-tuned GGUF generation failed, falling back: {e}")
+
+    # Mode 2: Cloud Model (Groq Primary with 3x retry -> OpenRouter Free Fallback)
+    if not answer:
+        # Primary: Groq with 3 attempts
+        if GROQ_API_KEY:
+            for attempt in range(1, 4):
+                try:
+                    print(f"Querying Groq Cloud Model with RAG context (Attempt {attempt}/3)...")
+                    r = requests.post(
+                        "https://api.groq.com/openai/v1/chat/completions",
+                        headers={
+                            "Authorization": f"Bearer {GROQ_API_KEY}",
+                            "Content-Type": "application/json"
+                        },
+                        json={
+                            "model": "llama-3.1-8b-instant",
+                            "messages": [
+                                {"role": "system", "content": system_instruction},
+                                {"role": "user", "content": payload.query}
+                            ],
+                            "temperature": 0.4,
+                            "max_tokens": 400
+                        },
+                        timeout=10
+                    )
+                    if r.ok:
+                        answer = r.json()["choices"][0]["message"]["content"].strip()
+                        model_used = "Groq Cloud (llama-3.1-8b-instant)"
+                        print(f"✓ Groq Grounded RAG succeeded on attempt {attempt}")
+                        break
+                except Exception as e:
+                    print(f"Groq RAG attempt {attempt} error: {e}")
+                    time.sleep(0.3 * attempt)
+
+        # Fallback: Free OpenRouter model
+        if not answer and OPENROUTER_API_KEY:
+            try:
+                print("Fallback: Querying Free OpenRouter Model with RAG context...")
+                r = requests.post(
+                    "https://openrouter.ai/api/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                        "Content-Type": "application/json",
+                        "HTTP-Referer": "http://localhost:8000",
+                        "X-Title": "Investo Bot Grounded RAG"
+                    },
+                    json={
+                        "model": "meta-llama/llama-3-8b-instruct:free",
+                        "messages": [
+                            {"role": "system", "content": system_instruction},
+                            {"role": "user", "content": payload.query}
+                        ],
+                        "temperature": 0.4,
+                        "max_tokens": 400
+                    },
+                    timeout=15
+                )
+                if r.ok:
+                    answer = r.json()["choices"][0]["message"]["content"].strip()
+                    model_used = "OpenRouter Cloud Fallback (meta-llama/llama-3-8b-instruct:free)"
+            except Exception as e:
+                print(f"OpenRouter RAG generation error: {e}")
+
+    if not answer:
+        answer = f"Retrieved {len(matched_chunks)} relevant sources from RAG vault, but generation models were temporarily unavailable."
+
+    return {
+        "found_documents": True,
+        "needs_user_choice": False,
+        "is_general_search": False,
+        "answer": answer,
+        "citations": citations,
+        "model_used": model_used
+    }
 
 class ChatPayload(BaseModel):
     message: str

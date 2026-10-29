@@ -92,6 +92,82 @@ export async function analyzeWithBackend(query: string, ticker: string): Promise
   return res.json();
 }
 
+export interface ExtractTickerResult {
+  ticker: string | null;
+  company: string | null;
+  found: boolean;
+  provider?: string;
+}
+
+/**
+ * Automatically sends user query to OpenRouter (with fallbacks)
+ * solely to identify the company and return a valid ticker symbol.
+ */
+export async function extractTickerWithOpenRouter(query: string): Promise<ExtractTickerResult> {
+  try {
+    const res = await fetch(`${ACTIVE_BACKEND_URL}/api/extract-ticker`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query }),
+      signal: AbortSignal.timeout(8000),
+    });
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (_e) {
+    // Backend offline or timeout
+  }
+  return { ticker: null, company: null, found: false };
+}
+
+export interface RagQueryParams {
+  query: string;
+  ticker?: string;
+  modelMode?: 'FINE-TUNED' | 'CLOUD';
+  sessionId?: string;
+  allowGeneralSearch?: boolean;
+}
+
+export interface RagQueryResponse {
+  found_documents: boolean;
+  needs_user_choice?: boolean;
+  is_general_search?: boolean;
+  answer: string;
+  citations?: Array<{ source: string; page?: number; snippet?: string }>;
+  model_used?: string;
+}
+
+/**
+ * Searches the RAG Vault for relevant documents. If found, generates
+ * grounded answer using selected model (fine-tuned or cloud). If not found,
+ * asks user choice or performs general OpenRouter search.
+ */
+export async function queryRagPipeline(params: RagQueryParams): Promise<RagQueryResponse> {
+  const res = await fetch(`${ACTIVE_BACKEND_URL}/api/rag-query`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      query: params.query,
+      ticker: params.ticker || 'AAPL',
+      model_mode: params.modelMode || 'FINE-TUNED',
+      session_id: params.sessionId || 'default_session',
+      allow_general_search: Boolean(params.allowGeneralSearch),
+    }),
+    signal: AbortSignal.timeout(60000),
+  });
+
+  if (!res.ok) {
+    let detail = `RAG service error (${res.status})`;
+    try {
+      const err = await res.json();
+      if (err?.detail) detail = String(err.detail);
+    } catch (_) {}
+    throw new Error(detail);
+  }
+
+  return res.json();
+}
+
 export interface UploadResult {
   status: string;
   filename: string;

@@ -24,6 +24,8 @@ interface DashboardProps {
   onTimeframeChange: (tf: '1D' | '1W' | '1M' | '1Y') => void;
   modelMode: 'FINE-TUNED' | 'CLOUD';
   onModelModeChange: (mode: 'FINE-TUNED' | 'CLOUD') => void;
+  onUploadToVault?: () => void;
+  onContinueGeneralSearch?: (query: string, ticker?: string) => void;
 }
 
 export const Dashboard: React.FC<DashboardProps> = ({
@@ -41,6 +43,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
   onTimeframeChange,
   modelMode,
   onModelModeChange,
+  onUploadToVault,
+  onContinueGeneralSearch,
 }) => {
   const [inputQuestion, setInputQuestion] = useState('');
   const [showMemo, setShowMemo] = useState(false);
@@ -716,10 +720,86 @@ Explore on FinChat: https://investo-bot-xi.vercel.app/`;
                 {m.isLoading ? (
                   <div className="mono" style={{ fontSize: '11px', color: '#6B7280', display: 'flex', alignItems: 'center', gap: '6px' }}>
                     <span style={{ display: 'inline-block', animation: 'spin 1s linear infinite' }}>⟳</span>
-                    Running financial analysis engine…
+                    Running financial RAG analysis…
                   </div>
                 ) : (
-                  <div style={{ fontSize: '12px', lineHeight: 1.55, whiteSpace: 'pre-line' }}>{m.content}</div>
+                  <>
+                    <div style={{ fontSize: '12px', lineHeight: 1.55, whiteSpace: 'pre-line' }}>{m.content}</div>
+
+                    {/* Citations when documents are retrieved */}
+                    {m.citations && m.citations.length > 0 && (
+                      <div style={{ marginTop: '10px', paddingTop: '8px', borderTop: '1px dashed #E5E7EB', fontSize: '11px' }}>
+                        <div className="mono" style={{ fontWeight: 700, color: '#374151', marginBottom: '4px', fontSize: '10px' }}>
+                          📄 RELEVANT RAG SOURCES:
+                        </div>
+                        {m.citations.map((c, i) => (
+                          <div key={i} style={{ color: '#4B5563', marginBottom: '3px' }}>
+                            • <strong>{c.source}</strong> {c.page ? `(Page ${c.page})` : ''}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Interactive choices when no matching documents were found in the RAG vault */}
+                    {m.needsUserChoice && (
+                      <div
+                        style={{
+                          marginTop: '12px',
+                          padding: '12px',
+                          backgroundColor: '#F9FAFB',
+                          border: '1px solid #E5E7EB',
+                        }}
+                      >
+                        <div className="mono" style={{ fontSize: '10px', fontWeight: 700, color: '#4B5563', marginBottom: '8px', textTransform: 'uppercase' }}>
+                          Choose Next Step:
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                          <button
+                            type="button"
+                            onClick={() => onUploadToVault?.()}
+                            className="mono hover-card"
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              padding: '8px 10px',
+                              backgroundColor: '#000000',
+                              color: '#FFFFFF',
+                              border: '1px solid #000000',
+                              fontSize: '11px',
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                              textAlign: 'left',
+                            }}
+                          >
+                            <span>📁</span>
+                            <span>Upload related files to RAG vault for a retry</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => onContinueGeneralSearch?.(m.ragQuery || '', m.ragTicker)}
+                            className="mono hover-card"
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              padding: '8px 10px',
+                              backgroundColor: '#FFFFFF',
+                              color: '#111827',
+                              border: '1px solid #000000',
+                              fontSize: '11px',
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                              textAlign: 'left',
+                            }}
+                          >
+                            <span>🌐</span>
+                            <span>Continue with a general search through OpenRouter</span>
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             ))

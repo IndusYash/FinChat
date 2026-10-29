@@ -11,7 +11,11 @@ import { RagVault } from './pages/RagVault';
 import { SystemArchitecture } from './pages/SystemArchitecture';
 import { STOCK_DATABASE, detectBrandOrTicker } from './data/mockData';
 import type { Message, StockData } from './types';
-import { analyzeWithBackend, AnalysisError, fetchStockData } from './services/api';
+import {
+  fetchStockData,
+  extractTickerWithOpenRouter,
+  queryRagPipeline,
+} from './services/api';
 import './App.css';
 
 export default function App() {
@@ -62,110 +66,6 @@ export default function App() {
     loadStockData('RELIANCE.NS');
   }, []);
 
-  /**
-   * Converts a raw /api/analyze response into a Message ready for the chat list.
-   * Only fields that are actually present in the response are mapped.
-   */
-  const buildAssistantMessage = (data: any, ticker: string): Message => {
-    const verdict = data?.verdict;
-    const toolRecords: any[] = data?.tool_records ?? [];
-    const narrative: string = data?.narrative ?? '';
-
-    // Build content from narrative (preferred) or fall back to quantitative_summary
-    const content =
-      narrative.trim() ||
-      verdict?.quantitative_summary ||
-      `Analysis complete for ${ticker}.`;
-
-    // Tool names — only shown if the backend actually reported them
-    const toolCalls: string[] =
-      toolRecords.length > 0
-        ? toolRecords.map((t: any) => t.tool_name).filter(Boolean)
-        : [];
-
-    // Verdict badge — only if stance and a numeric price range are present
-    let verdictBadge: Message['verdict'] | undefined;
-    if (
-      verdict?.stance &&
-      Array.isArray(verdict?.target_price_range) &&
-      verdict.target_price_range.length === 2
-    ) {
-      const stance = String(verdict.stance).toUpperCase();
-      if (stance === 'BULLISH' || stance === 'BEARISH' || stance === 'NEUTRAL') {
-        verdictBadge = {
-          stance: stance as 'BULLISH' | 'BEARISH' | 'NEUTRAL',
-          targetRange: [
-            Math.round(verdict.target_price_range[0]),
-            Math.round(verdict.target_price_range[1]),
-          ],
-        };
-      }
-    }
-
-    return {
-      id: Date.now().toString(),
-      role: 'assistant',
-      content,
-      toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
-      verdict: verdictBadge,
-    };
-  };
-
-  /**
-   * Core async handler used by both the Home CTA and the chat input.
-   * Adds a loading bubble, sends the real request, replaces the bubble with
-   * the real response, and clears loading state regardless of outcome.
-   */
-  const sendAnalysisMessage = async (query: string, ticker: string) => {
-    if (isAnalyzing) return;
-    setIsAnalyzing(true);
-
-    // 1 — Show user message immediately
-    const userMsg: Message = { id: Date.now().toString(), role: 'user', content: query };
-    setMessages((prev) => [...prev, userMsg]);
-
-    // 2 — Show loading bubble with a stable ID we can replace
-    const loadingId = `loading-${Date.now()}`;
-    const loadingMsg: Message = {
-      id: loadingId,
-      role: 'assistant',
-      content: '',
-      isLoading: true,
-    };
-    setMessages((prev) => [...prev, loadingMsg]);
-
-    try {
-      // 3 — Real backend call
-      const data = await analyzeWithBackend(query, ticker);
-
-      // 4 — Replace loading bubble with the real response
-      const assistantMsg = buildAssistantMessage(data, ticker);
-      setMessages((prev) => prev.map((m) => (m.id === loadingId ? assistantMsg : m)));
-    } catch (err) {
-      // 5 — Honest error message; never fabricate financial data
-      let errorText: string;
-      if (err instanceof AnalysisError) {
-        errorText =
-          err.status === 503
-            ? 'The analysis engine is temporarily unavailable. Please try again shortly.'
-            : `Analysis failed: ${err.detail}`;
-      } else if (err instanceof Error && err.name === 'TimeoutError') {
-        errorText = 'Request timed out. The backend may be starting up — please try again.';
-      } else {
-        errorText = 'Could not reach the backend. Check your connection and try again.';
-      }
-
-      const errMsg: Message = {
-        id: loadingId,
-        role: 'assistant',
-        content: errorText,
-      };
-      setMessages((prev) => prev.map((m) => (m.id === loadingId ? errMsg : m)));
-    } finally {
-      setIsAnalyzing(false);
-    }
-  };
-
   const loadStockData = async (symbol: string) => {
     const sym = symbol.trim().toUpperCase();
     if (!sym || isStockLoading) return;
@@ -201,16 +101,136 @@ export default function App() {
     loadStockData(detectedTicker);
     setActiveTab('TERMINAL');
     // Defer one tick so the Dashboard has mounted before we mutate messages
-    setTimeout(() => sendAnalysisMessage(query, detectedTicker), 0);
+    setTimeout(() => handleSendMessage(query), 0);
   };
 
+  /**
+   * Decoupled FinChat Query Workflow:
+   * 1. Query is immediately dispatched to OpenRouter to identify company & valid ticker.
+   *    Once resolved, stock data is retrieved independently, updating the dashboard.
+   * 2. At the same time, query is sent to the RAG pipeline to search the RAG Vault.
+   *    If matching documents are found, context is passed to the selected model (fine-tuned or cloud).
+   *    If not found, user is offered two explicit choices (upload files or general search).
+   */
   const handleSendMessage = (text: string) => {
-    const detected = detectBrandOrTicker(text);
-    const targetSymbol = detected || activeSymbol;
-    if (detected && detected !== activeSymbol) {
-      loadStockData(detected);
+    if (isAnalyzing) return;
+    setIsAnalyzing(true);
+
+    // 1. Show user message immediately
+    const userMsg: Message = { id: Date.now().toString(), role: 'user', content: text };
+    setMessages((prev) => [...prev, userMsg]);
+
+    // 2. Show loading message for assistant
+    const loadingId = `loading-${Date.now()}`;
+    const loadingMsg: Message = {
+      id: loadingId,
+      role: 'assistant',
+      content: '',
+      isLoading: true,
+    };
+    setMessages((prev) => [...prev, loadingMsg]);
+
+    // Track 1: Stock data lookup (Independent & Non-blocking)
+    (async () => {
+      try {
+        const res = await extractTickerWithOpenRouter(text);
+        const resolvedTicker = res?.ticker || detectBrandOrTicker(text);
+        if (resolvedTicker && resolvedTicker !== activeSymbol) {
+          loadStockData(resolvedTicker);
+        }
+      } catch (_e) {
+        const local = detectBrandOrTicker(text);
+        if (local && local !== activeSymbol) {
+          loadStockData(local);
+        }
+      }
+    })();
+
+    // Track 2: RAG Pipeline (Independent & Non-blocking)
+    (async () => {
+      try {
+        const ragRes = await queryRagPipeline({
+          query: text,
+          ticker: activeSymbol,
+          modelMode,
+          sessionId: 'default_session',
+          allowGeneralSearch: false,
+        });
+
+        const assistantMsg: Message = {
+          id: loadingId,
+          role: 'assistant',
+          content: ragRes.answer,
+          needsUserChoice: ragRes.needs_user_choice,
+          ragQuery: text,
+          ragTicker: activeSymbol,
+          citations: ragRes.citations,
+          modelUsed: ragRes.model_used,
+        };
+        setMessages((prev) => prev.map((m) => (m.id === loadingId ? assistantMsg : m)));
+      } catch (err) {
+        const errMsg: Message = {
+          id: loadingId,
+          role: 'assistant',
+          content: 'Could not complete RAG query. Please check your backend connection.',
+        };
+        setMessages((prev) => prev.map((m) => (m.id === loadingId ? errMsg : m)));
+      } finally {
+        setIsAnalyzing(false);
+      }
+    })();
+  };
+
+  /**
+   * Action handler: User opted to continue with General Search via OpenRouter
+   */
+  const handleContinueGeneralSearch = async (query: string, ticker?: string) => {
+    if (isAnalyzing) return;
+    setIsAnalyzing(true);
+
+    const loadingId = `loading-${Date.now()}`;
+    const loadingMsg: Message = {
+      id: loadingId,
+      role: 'assistant',
+      content: '',
+      isLoading: true,
+    };
+    setMessages((prev) => [...prev, loadingMsg]);
+
+    try {
+      const ragRes = await queryRagPipeline({
+        query,
+        ticker: ticker || activeSymbol,
+        modelMode: 'CLOUD',
+        sessionId: 'default_session',
+        allowGeneralSearch: true,
+      });
+
+      const assistantMsg: Message = {
+        id: loadingId,
+        role: 'assistant',
+        content: ragRes.answer,
+        isGeneralSearch: true,
+        modelUsed: ragRes.model_used,
+      };
+      setMessages((prev) => prev.map((m) => (m.id === loadingId ? assistantMsg : m)));
+    } catch (err) {
+      const errMsg: Message = {
+        id: loadingId,
+        role: 'assistant',
+        content: 'Failed to complete general search through OpenRouter. Please try again.',
+      };
+      setMessages((prev) => prev.map((m) => (m.id === loadingId ? errMsg : m)));
+    } finally {
+      setIsAnalyzing(false);
     }
-    sendAnalysisMessage(text, targetSymbol);
+  };
+
+  /**
+   * Action handler: User opted to upload related files to RAG Vault
+   */
+  const handleUploadToVault = () => {
+    setActiveTab('RAG_VAULT');
   };
 
   const handleSearchSubmit = (e?: React.FormEvent) => {
@@ -269,6 +289,8 @@ export default function App() {
             onTimeframeChange={(tf) => setTimeframe(tf)}
             modelMode={modelMode}
             onModelModeChange={(mode) => setModelMode(mode)}
+            onUploadToVault={handleUploadToVault}
+            onContinueGeneralSearch={handleContinueGeneralSearch}
           />
         )}
 

@@ -65,6 +65,12 @@ export interface Message {
     stance: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
     targetRange: [number, number];
   };
+  needsUserChoice?: boolean;
+  ragQuery?: string;
+  ragTicker?: string;
+  isGeneralSearch?: boolean;
+  citations?: Array<{ source: string; page?: number; snippet?: string }>;
+  modelUsed?: string;
 }
 
 export interface RagDocument {

@@ -15,9 +15,26 @@ export const BRAND_MAP: Record<string, string> = {
   airtel: 'BHARTIARTL.NS',
   bharti: 'BHARTIARTL.NS',
   bhartiartl: 'BHARTIARTL.NS',
+  itc: 'ITC.NS',
+  lt: 'LT.NS',
+  larsen: 'LT.NS',
+  'tata motors': 'TATAMOTORS.NS',
+  tatamotors: 'TATAMOTORS.NS',
+  hul: 'HINDUNILVR.NS',
+  'hindustan unilever': 'HINDUNILVR.NS',
+  maruti: 'MARUTI.NS',
+  bajaj: 'BAJFINANCE.NS',
+  'sun pharma': 'SUNPHARMA.NS',
+  titan: 'TITAN.NS',
+  wipro: 'WIPRO.NS',
+  adani: 'ADANIENT.NS',
+  zomato: 'ZOMATO.NS',
+  paytm: 'PAYTM.NS',
   nifty: '^NSEI',
   nifty50: '^NSEI',
   sensex: '^BSESN',
+  accenture: 'ACN',
+  acn: 'ACN',
   apple: 'AAPL',
   aapl: 'AAPL',
   iphone: 'AAPL',
@@ -38,6 +55,19 @@ export const BRAND_MAP: Record<string, string> = {
   goog: 'GOOGL',
   meta: 'META',
   facebook: 'META',
+  netflix: 'NFLX',
+  nflx: 'NFLX',
+  intel: 'INTC',
+  intc: 'INTC',
+  amd: 'AMD',
+  oracle: 'ORCL',
+  orcl: 'ORCL',
+  ibm: 'IBM',
+  uber: 'UBER',
+  adobe: 'ADBE',
+  salesforce: 'CRM',
+  qualcomm: 'QCOM',
+  cisco: 'CSCO',
 };
 
 export function detectBrandOrTicker(query: string): string | null {
@@ -46,6 +76,16 @@ export function detectBrandOrTicker(query: string): string | null {
     const regex = new RegExp(`\\b${key}\\b`, 'i');
     if (regex.test(lower)) {
       return ticker;
+    }
+  }
+  // Check for phrases like "tell me about <word>", "analyze <word>", "what about <word>"
+  const phraseMatch = query.match(/(?:about|for|analyze|view|evaluate|on)\s+([A-Za-z0-9\.\^]{2,12})/i);
+  if (phraseMatch) {
+    const candidate = phraseMatch[1].toLowerCase();
+    if (BRAND_MAP[candidate]) return BRAND_MAP[candidate];
+    // If it's a 1-5 letter ticker
+    if (/^[A-Za-z]{1,5}$/.test(candidate) && !['what', 'how', 'why', 'dcf', 'the', 'and', 'for', 'not', 'you', 'this', 'that'].includes(candidate)) {
+      return candidate.toUpperCase();
     }
   }
   // Check for uppercase 1-5 letter ticker

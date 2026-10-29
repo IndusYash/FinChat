@@ -74,13 +74,46 @@ class FinancialAgentEngine:
             ]
         }
 
-    def _extract_ticker(self, query: str) -> str:
-        """Heuristic to extract ticker symbol from query or default to AAPL."""
-        match = re.search(r"\b([A-Z]{1,5})\b", query)
-        common_words = {"WHAT", "HOW", "WHY", "DCF", "PE", "RAG", "THE", "CAN", "AND", "FOR"}
-        if match and match.group(1) not in common_words:
-            return match.group(1)
-        return "AAPL"
+    def _extract_ticker(self, query: str) -> Optional[str]:
+        """Heuristic to extract ticker symbol from query using brand mapping and ticker patterns."""
+        brand_map = {
+            "reliance": "RELIANCE.NS",
+            "ril": "RELIANCE.NS",
+            "tcs": "TCS.NS",
+            "infosys": "INFY.NS",
+            "infy": "INFY.NS",
+            "hdfc": "HDFCBANK.NS",
+            "hdfcbank": "HDFCBANK.NS",
+            "icici": "ICICIBANK.NS",
+            "icicibank": "ICICIBANK.NS",
+            "sbi": "SBIN.NS",
+            "sbin": "SBIN.NS",
+            "airtel": "BHARTIARTL.NS",
+            "bharti": "BHARTIARTL.NS",
+            "itc": "ITC.NS",
+            "tata motors": "TATAMOTORS.NS",
+            "tatamotors": "TATAMOTORS.NS",
+            "apple": "AAPL",
+            "aapl": "AAPL",
+            "tesla": "TSLA",
+            "tsla": "TSLA",
+            "nvidia": "NVDA",
+            "nvda": "NVDA",
+            "microsoft": "MSFT",
+            "msft": "MSFT",
+            "google": "GOOGL",
+            "amazon": "AMZN",
+        }
+        lower = query.lower()
+        for k, v in brand_map.items():
+            if re.search(r"\b" + re.escape(k) + r"\b", lower):
+                return v
+
+        match = re.search(r"\b([A-Z0-9\.\^]{1,12})\b", query)
+        common_words = {"WHAT", "HOW", "WHY", "DCF", "PE", "RAG", "THE", "CAN", "AND", "FOR", "TELL", "ME", "ABOUT", "GIVE", "VIEW"}
+        if match and match.group(1).upper() not in common_words:
+            return match.group(1).upper()
+        return None
 
     def execute_plan(
         self,
@@ -95,7 +128,16 @@ class FinancialAgentEngine:
             - tool_records: Audit log of tool actions and observations
             - narrative_response: Executive assistant synthesis
         """
-        ticker = active_ticker or self._extract_ticker(query)
+        detected_ticker = self._extract_ticker(query)
+        ticker = detected_ticker or active_ticker or "RELIANCE.NS"
+        if ("." not in ticker) and ("^" not in ticker):
+            # Check if unsuffixed ticker is an Indian stock
+            try:
+                check_quote = MarketTools.get_live_quote(f"{ticker}.NS")
+                if check_quote.get("last_price", 0.0) > 0:
+                    ticker = f"{ticker}.NS"
+            except Exception:
+                pass
         tool_records: List[ToolCallRecord] = []
         collected_citations: List[CitationRef] = []
 

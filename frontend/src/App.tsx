@@ -9,7 +9,7 @@ import { CapitalLab } from './pages/CapitalLab';
 import { MarketPulse } from './pages/MarketPulse';
 import { RagVault } from './pages/RagVault';
 import { SystemArchitecture } from './pages/SystemArchitecture';
-import { STOCK_DATABASE } from './data/mockData';
+import { STOCK_DATABASE, detectBrandOrTicker } from './data/mockData';
 import type { Message, StockData } from './types';
 import { analyzeWithBackend, AnalysisError, fetchStockData } from './services/api';
 import './App.css';
@@ -205,7 +205,12 @@ export default function App() {
   };
 
   const handleSendMessage = (text: string) => {
-    sendAnalysisMessage(text, activeSymbol);
+    const detected = detectBrandOrTicker(text);
+    const targetSymbol = detected || activeSymbol;
+    if (detected && detected !== activeSymbol) {
+      loadStockData(detected);
+    }
+    sendAnalysisMessage(text, targetSymbol);
   };
 
   const handleSearchSubmit = (e?: React.FormEvent) => {

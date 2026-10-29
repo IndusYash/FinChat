@@ -10,7 +10,7 @@ interface WatchlistBarProps {
 }
 
 const DEFAULT_WATCHLIST = ['RELIANCE.NS', 'TCS.NS', 'INFY.NS', 'HDFCBANK.NS'];
-const STORAGE_KEY = 'finchat_user_watchlist';
+const STORAGE_KEY = 'finchat_user_watchlist_v2';
 
 export const WatchlistBar: React.FC<WatchlistBarProps> = ({ activeSymbol, currentStock, onSelectSymbol }) => {
   const [watchlist, setWatchlist] = useState<string[]>(() => {

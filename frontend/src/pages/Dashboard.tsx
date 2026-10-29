@@ -793,8 +793,8 @@ Explore on FinChat: https://investo-bot-xi.vercel.app/`;
                               textAlign: 'left',
                             }}
                           >
-                            <span>🌐</span>
-                            <span>Continue with a general search through OpenRouter</span>
+                            <span>⚡</span>
+                            <span>Continue with general search (Groq AI)</span>
                           </button>
                         </div>
                       </div>

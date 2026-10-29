@@ -218,7 +218,7 @@ export default function App() {
       const errMsg: Message = {
         id: loadingId,
         role: 'assistant',
-        content: 'Failed to complete general search through OpenRouter. Please try again.',
+        content: 'Failed to complete general search. Please try again.',
       };
       setMessages((prev) => prev.map((m) => (m.id === loadingId ? errMsg : m)));
     } finally {

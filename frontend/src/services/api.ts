@@ -8,7 +8,12 @@ import type { StockData } from '../types';
 const LOCAL_URL = 'http://localhost:8000';
 const CLOUD_URL = 'https://indusyash-coordinator-rag.hf.space';
 
-let ACTIVE_BACKEND_URL = (import.meta as any).env?.VITE_BACKEND_URL || CLOUD_URL;
+const isLocalhost =
+  typeof window !== 'undefined' &&
+  (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+
+let ACTIVE_BACKEND_URL =
+  (import.meta as any).env?.VITE_BACKEND_URL || (isLocalhost ? LOCAL_URL : CLOUD_URL);
 
 export interface BackendStatus {
   online: boolean;
@@ -203,7 +208,14 @@ export async function fetchTapeQuotes(symbols: string[]): Promise<Array<{ symbol
         const d = await res.json();
         if (d.price && Number(d.price) > 0) {
           const p = Number(d.price);
-          const chg = Number(d.changePercent ?? d.change ?? 0);
+          let chg = Number(d.changePercent ?? d.change ?? 0);
+          if (chg === 0 && Array.isArray(d.chartData) && d.chartData.length >= 2) {
+            const last = Number(d.chartData[d.chartData.length - 1]?.price || 0);
+            const prev = Number(d.chartData[d.chartData.length - 2]?.price || 0);
+            if (prev > 0 && last > 0) {
+              chg = Number((((last - prev) / prev) * 100).toFixed(2));
+            }
+          }
           TAPE_CACHE.set(sym, { price: p, change: chg, timestamp: now });
           return {
             symbol: sym,

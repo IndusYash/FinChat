@@ -88,7 +88,7 @@ export const TickerTape: React.FC = () => {
             return {
               ...item,
               price: live.price,
-              change: live.change,
+              change: live.change !== 0 ? live.change : item.change,
               currency: live.currency === 'USD' ? '$' : '₹',
             };
           });

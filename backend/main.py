@@ -731,6 +731,13 @@ def get_stock_data(ticker: str):
             { "date": "Fri", "price": round(price, 2) }
         ]
 
+    if (change == 0.0 or change_percent == 0.0) and len(chart_data) >= 2:
+        prev_p = chart_data[-2]["price"]
+        curr_p = chart_data[-1]["price"]
+        if prev_p > 0:
+            change = round(curr_p - prev_p, 2)
+            change_percent = round((change / prev_p) * 100, 2)
+
     is_indian = ticker.endswith(".NS") or ticker.endswith(".BO") or ticker.startswith("^NSE") or ticker.startswith("^BSE")
     exchange = "NSE" if ticker.endswith(".NS") or ticker.startswith("^NSE") else ("BSE" if ticker.endswith(".BO") or ticker.startswith("^BSE") else "US")
     currency = "INR" if is_indian else "USD"

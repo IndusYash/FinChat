@@ -798,21 +798,24 @@ def extract_mentioned_ticker(message: str):
         print(f"Error in extract_mentioned_ticker: {e}")
     return None
 
+GROQ_MODEL = "qwen/qwen3.8-27b"
+OPENROUTER_FREE_MODEL = "google/gemma-4-31b-it:free"
+
 class ExtractTickerRequest(BaseModel):
     query: str
 
 def extract_ticker_with_openrouter(query: str) -> Dict[str, Any]:
     """
     Identifies the relevant company and returns a valid ticker symbol.
-    Primary: Groq (llama-3.1-8b-instant) with at least 3 retry attempts.
-    Fallback: Free OpenRouter model (meta-llama/llama-3-8b-instruct:free).
+    Primary: Groq (qwen/qwen3.8-27b) with at least 3 retry attempts.
+    Fallback: Free OpenRouter model (google/gemma-4-31b-it:free).
     Final Safety Net: Local rule-based dictionary.
     """
     # 1. PRIMARY: Try Groq with at least 3 attempts
     if GROQ_API_KEY:
         for attempt in range(1, 4):
             try:
-                print(f"Identifying ticker via Groq (Attempt {attempt}/3) for '{query}'...")
+                print(f"Identifying ticker via Groq ({GROQ_MODEL}) (Attempt {attempt}/3) for '{query}'...")
                 res = requests.post(
                     "https://api.groq.com/openai/v1/chat/completions",
                     headers={
@@ -820,7 +823,7 @@ def extract_ticker_with_openrouter(query: str) -> Dict[str, Any]:
                         "Content-Type": "application/json"
                     },
                     json={
-                        "model": "llama-3.1-8b-instant",
+                        "model": GROQ_MODEL,
                         "messages": [
                             {
                                 "role": "system",
@@ -860,10 +863,10 @@ def extract_ticker_with_openrouter(query: str) -> Dict[str, Any]:
                 print(f"Groq ticker attempt {attempt} error: {e}")
                 time.sleep(0.3 * attempt)
 
-    # 2. FALLBACK: Free OpenRouter model (meta-llama/llama-3-8b-instruct:free)
+    # 2. FALLBACK: Free OpenRouter model
     if OPENROUTER_API_KEY:
         try:
-            print(f"Fallback: Identifying ticker for '{query}' using Free OpenRouter model...")
+            print(f"Fallback: Identifying ticker for '{query}' using Free OpenRouter model ({OPENROUTER_FREE_MODEL})...")
             res = requests.post(
                 "https://openrouter.ai/api/v1/chat/completions",
                 headers={
@@ -873,7 +876,7 @@ def extract_ticker_with_openrouter(query: str) -> Dict[str, Any]:
                     "X-Title": "Investo Bot Ticker Extractor"
                 },
                 json={
-                    "model": "meta-llama/llama-3-8b-instruct:free",
+                    "model": OPENROUTER_FREE_MODEL,
                     "messages": [
                         {
                             "role": "system",
@@ -978,9 +981,9 @@ def api_rag_query(payload: RagQueryPayload):
                     sim = float(np.dot(q_emb, item["embedding"]))
                     scored.append((sim, item))
                 scored.sort(key=lambda x: x[0], reverse=True)
-                # Keep matches that meet similarity threshold (0.28)
+                # Keep matches that meet true semantic similarity threshold (0.55 for BAAI/bge-small-en-v1.5)
                 for sim, item in scored[:4]:
-                    if sim >= 0.28:
+                    if sim >= 0.55:
                         matched_chunks.append({
                             "source": f"User Upload: {item['source']}",
                             "page": item["page"],
@@ -1004,8 +1007,8 @@ def api_rag_query(payload: RagQueryPayload):
             res = index.query(vector=q_emb, top_k=needed, include_metadata=True)
             for match in res.get("matches", []):
                 score = match.get("score", 0.0)
-                # Pinecone cosine score threshold for relevance
-                if score >= 0.28:
+                # Pinecone cosine score threshold for relevance (0.55)
+                if score >= 0.55:
                     meta = match.get("metadata", {})
                     src = meta.get("source", "Institutional SEC Corpus")
                     pg = meta.get("page", 1)
@@ -1057,7 +1060,7 @@ def api_rag_query(payload: RagQueryPayload):
         if GROQ_API_KEY:
             for attempt in range(1, 4):
                 try:
-                    print(f"General Search via Groq (Attempt {attempt}/3)...")
+                    print(f"General Search via Groq ({GROQ_MODEL}) (Attempt {attempt}/3)...")
                     r = requests.post(
                         "https://api.groq.com/openai/v1/chat/completions",
                         headers={
@@ -1065,7 +1068,7 @@ def api_rag_query(payload: RagQueryPayload):
                             "Content-Type": "application/json"
                         },
                         json={
-                            "model": "llama-3.1-8b-instant",
+                            "model": GROQ_MODEL,
                             "messages": [
                                 {"role": "system", "content": "You are FinChat, an expert AI financial analyst. Answer clearly and comprehensively."},
                                 {"role": "user", "content": general_prompt}
@@ -1077,7 +1080,7 @@ def api_rag_query(payload: RagQueryPayload):
                     )
                     if r.ok:
                         answer = r.json()["choices"][0]["message"]["content"].strip()
-                        model_used = "Groq (llama-3.1-8b-instant)"
+                        model_used = f"Groq ({GROQ_MODEL})"
                         print(f"✓ Groq General Search succeeded on attempt {attempt}")
                         break
                 except Exception as e:
@@ -1087,7 +1090,7 @@ def api_rag_query(payload: RagQueryPayload):
         # 2. FALLBACK: Free OpenRouter model only if Groq failed or key absent
         if not answer and OPENROUTER_API_KEY:
             try:
-                print("Fallback: General Search via Free OpenRouter model (meta-llama/llama-3-8b-instruct:free)...")
+                print(f"Fallback: General Search via Free OpenRouter model ({OPENROUTER_FREE_MODEL})...")
                 r = requests.post(
                     "https://openrouter.ai/api/v1/chat/completions",
                     headers={
@@ -1097,7 +1100,7 @@ def api_rag_query(payload: RagQueryPayload):
                         "X-Title": "Investo Bot General Search"
                     },
                     json={
-                        "model": "meta-llama/llama-3-8b-instruct:free",
+                        "model": OPENROUTER_FREE_MODEL,
                         "messages": [
                             {"role": "system", "content": "You are FinChat, an expert AI financial analyst. Answer clearly and comprehensively."},
                             {"role": "user", "content": general_prompt}
@@ -1109,7 +1112,7 @@ def api_rag_query(payload: RagQueryPayload):
                 )
                 if r.ok:
                     answer = r.json()["choices"][0]["message"]["content"].strip()
-                    model_used = "OpenRouter Fallback (meta-llama/llama-3-8b-instruct:free)"
+                    model_used = f"OpenRouter Fallback ({OPENROUTER_FREE_MODEL})"
             except Exception as e:
                 print(f"OpenRouter general search error: {e}")
 
@@ -1169,7 +1172,7 @@ def api_rag_query(payload: RagQueryPayload):
         if GROQ_API_KEY:
             for attempt in range(1, 4):
                 try:
-                    print(f"Querying Groq Cloud Model with RAG context (Attempt {attempt}/3)...")
+                    print(f"Querying Groq Cloud Model ({GROQ_MODEL}) with RAG context (Attempt {attempt}/3)...")
                     r = requests.post(
                         "https://api.groq.com/openai/v1/chat/completions",
                         headers={
@@ -1177,7 +1180,7 @@ def api_rag_query(payload: RagQueryPayload):
                             "Content-Type": "application/json"
                         },
                         json={
-                            "model": "llama-3.1-8b-instant",
+                            "model": GROQ_MODEL,
                             "messages": [
                                 {"role": "system", "content": system_instruction},
                                 {"role": "user", "content": payload.query}
@@ -1189,7 +1192,7 @@ def api_rag_query(payload: RagQueryPayload):
                     )
                     if r.ok:
                         answer = r.json()["choices"][0]["message"]["content"].strip()
-                        model_used = "Groq Cloud (llama-3.1-8b-instant)"
+                        model_used = f"Groq Cloud ({GROQ_MODEL})"
                         print(f"✓ Groq Grounded RAG succeeded on attempt {attempt}")
                         break
                 except Exception as e:
@@ -1199,7 +1202,7 @@ def api_rag_query(payload: RagQueryPayload):
         # Fallback: Free OpenRouter model
         if not answer and OPENROUTER_API_KEY:
             try:
-                print("Fallback: Querying Free OpenRouter Model with RAG context...")
+                print(f"Fallback: Querying Free OpenRouter Model ({OPENROUTER_FREE_MODEL}) with RAG context...")
                 r = requests.post(
                     "https://openrouter.ai/api/v1/chat/completions",
                     headers={
@@ -1209,7 +1212,7 @@ def api_rag_query(payload: RagQueryPayload):
                         "X-Title": "Investo Bot Grounded RAG"
                     },
                     json={
-                        "model": "meta-llama/llama-3-8b-instruct:free",
+                        "model": OPENROUTER_FREE_MODEL,
                         "messages": [
                             {"role": "system", "content": system_instruction},
                             {"role": "user", "content": payload.query}
@@ -1221,7 +1224,7 @@ def api_rag_query(payload: RagQueryPayload):
                 )
                 if r.ok:
                     answer = r.json()["choices"][0]["message"]["content"].strip()
-                    model_used = "OpenRouter Cloud Fallback (meta-llama/llama-3-8b-instruct:free)"
+                    model_used = f"OpenRouter Cloud Fallback ({OPENROUTER_FREE_MODEL})"
             except Exception as e:
                 print(f"OpenRouter RAG generation error: {e}")
 

@@ -9,29 +9,6 @@ interface TapeItem {
   currency: string;
 }
 
-const DISPLAY_MAP: Record<string, string> = {
-  '^NSEI': 'NIFTY 50',
-  '^BSESN': 'SENSEX',
-  'RELIANCE.NS': 'RELIANCE',
-  'TCS.NS': 'TCS',
-  'HDFCBANK.NS': 'HDFC BANK',
-  'INFY.NS': 'INFOSYS',
-  'ICICIBANK.NS': 'ICICI BANK',
-  'BHARTIARTL.NS': 'AIRTEL',
-  'SBIN.NS': 'SBI',
-  'ITC.NS': 'ITC',
-  'LT.NS': 'L&T',
-  'TATAMOTORS.NS': 'TATA MOTORS',
-  'HINDUNILVR.NS': 'HUL',
-  'BAJFINANCE.NS': 'BAJAJ FIN',
-  'MARUTI.NS': 'MARUTI',
-  'SUNPHARMA.NS': 'SUN PHARMA',
-  'TITAN.NS': 'TITAN',
-  'AAPL': 'APPLE',
-  'NVDA': 'NVIDIA',
-  'MSFT': 'MICROSOFT',
-};
-
 const INITIAL_TAPE_ITEMS: TapeItem[] = [
   { symbol: '^NSEI', displaySymbol: 'NIFTY 50', price: 24180.80, change: 0.65, currency: '₹' },
   { symbol: '^BSESN', displaySymbol: 'SENSEX', price: 79942.20, change: 0.60, currency: '₹' },

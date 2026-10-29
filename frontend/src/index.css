@@ -52,7 +52,7 @@ body {
 
 .ticker-inner {
   display: inline-flex;
-  animation: tickerScroll 28s linear infinite;
+  animation: tickerScroll 42s linear infinite;
 }
 
 .ticker-inner:hover { animation-play-state: paused; }

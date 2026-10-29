@@ -182,46 +182,51 @@ const TAPE_CACHE = new Map<string, { price: number; change: number; timestamp: n
  * Caches in memory to avoid redundant requests.
  */
 export async function fetchTapeQuotes(symbols: string[]): Promise<Array<{ symbol: string; price: number; change: number; currency: string; isLive: boolean }>> {
-  const results: Array<{ symbol: string; price: number; change: number; currency: string; isLive: boolean }> = [];
-
-  for (const sym of symbols) {
+  const fetchSingleQuote = async (sym: string) => {
     try {
       const cached = TAPE_CACHE.get(sym);
       const now = Date.now();
       if (cached && now - cached.timestamp < 60000) {
-        results.push({
+        return {
           symbol: sym,
           price: cached.price,
           change: cached.change,
           currency: sym.endsWith('.NS') || sym.endsWith('.BO') || sym.startsWith('^NSE') ? 'INR' : 'USD',
           isLive: true,
-        });
-        continue;
+        };
       }
 
       const res = await fetch(`${ACTIVE_BACKEND_URL}/api/stock/${encodeURIComponent(sym)}`, {
-        signal: AbortSignal.timeout(6000),
+        signal: AbortSignal.timeout(5000),
       });
       if (res.ok) {
         const d = await res.json();
         if (d.price && Number(d.price) > 0) {
           const p = Number(d.price);
-          const chg = Number(d.changePercent || d.change || 0);
+          const chg = Number(d.changePercent ?? d.change ?? 0);
           TAPE_CACHE.set(sym, { price: p, change: chg, timestamp: now });
-          results.push({
+          return {
             symbol: sym,
             price: p,
             change: chg,
             currency: d.currency || (sym.endsWith('.NS') ? 'INR' : 'USD'),
             isLive: true,
-          });
+          };
         }
       }
     } catch (_e) {
       // Do not synthesize fake prices if quote fails
     }
-  }
+    return null;
+  };
 
+  const settled = await Promise.allSettled(symbols.map(fetchSingleQuote));
+  const results: Array<{ symbol: string; price: number; change: number; currency: string; isLive: boolean }> = [];
+  for (const item of settled) {
+    if (item.status === 'fulfilled' && item.value) {
+      results.push(item.value);
+    }
+  }
   return results;
 }
 

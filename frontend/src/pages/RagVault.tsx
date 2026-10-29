@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Upload, FileText, CheckCircle2, Search, Database, Loader2 } from 'lucide-react';
+import { Upload, FileText, CheckCircle2, Search, Database, Loader2, AlertCircle } from 'lucide-react';
 import type { RagDocument } from '../types';
 import { INITIAL_RAG_DOCS } from '../data/mockData';
 import { uploadDocument, searchKnowledgeBase, type SearchResultItem } from '../services/api';
@@ -13,6 +13,9 @@ export const RagVault: React.FC<RagVaultProps> = ({ onDocCountChange }) => {
   const [isUploading, setIsUploading] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
   const [uploadSuccess, setUploadSuccess] = useState('');
+  const [uploadError, setUploadError] = useState('');
+  const [searchError, setSearchError] = useState('');
+  const [isPreviousResults, setIsPreviousResults] = useState(false);
   const [searchQuery, setSearchQuery] = useState('What are the key operational and supply chain risk factors?');
   const [topK, setTopK] = useState(3);
   const [searchResults, setSearchResults] = useState<SearchResultItem[]>([
@@ -49,6 +52,7 @@ export const RagVault: React.FC<RagVaultProps> = ({ onDocCountChange }) => {
     const file = files[0];
     setIsUploading(true);
     setUploadSuccess('');
+    setUploadError('');
 
     try {
       const res = await uploadDocument(file);
@@ -61,22 +65,14 @@ export const RagVault: React.FC<RagVaultProps> = ({ onDocCountChange }) => {
       };
 
       setDocs((prev) => [newDoc, ...prev]);
-      setUploadSuccess(res.message || `Successfully indexed ${res.chunks_created} vector chunks from "${file.name}" into active neural RAG vault!`);
+      setUploadSuccess(res.message || `Successfully indexed ${res.chunks_created} vector chunks from "${file.name}" into active neural RAG vault.`);
       onDocCountChange(docs.length + 1);
-    } catch (_err) {
-      const fallbackChunks = Math.max(16, Math.floor(file.size / 1024 / 4));
-      const newDoc: RagDocument = {
-        id: Date.now().toString(),
-        name: file.name,
-        size: `${(file.size / (1024 * 1024)).toFixed(1)} MB`,
-        chunks: fallbackChunks,
-        uploadDate: new Date().toISOString().split('T')[0],
-      };
-      setDocs((prev) => [newDoc, ...prev]);
-      setUploadSuccess(`Successfully indexed "${file.name}" into session store (${fallbackChunks} vector chunks).`);
-      onDocCountChange(docs.length + 1);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Upload failed. Document could not be processed.';
+      setUploadError(message);
     } finally {
       setIsUploading(false);
+      e.target.value = '';
     }
   };
 
@@ -85,13 +81,20 @@ export const RagVault: React.FC<RagVaultProps> = ({ onDocCountChange }) => {
     if (!searchQuery.trim()) return;
 
     setIsSearching(true);
+    setSearchError('');
     try {
       const liveResults = await searchKnowledgeBase(searchQuery.trim(), 'default_session', topK);
-      if (liveResults && liveResults.length > 0) {
-        setSearchResults(liveResults);
+      setSearchResults(liveResults);
+      setIsPreviousResults(false);
+      if (liveResults.length === 0) {
+        setSearchError('No matching passages found in knowledge base for this query.');
       }
-    } catch (_err) {
-      // safe fallback
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Search failed. Backend retrieval unavailable.';
+      setSearchError(message);
+      if (searchResults.length > 0) {
+        setIsPreviousResults(true);
+      }
     } finally {
       setIsSearching(false);
     }
@@ -182,6 +185,27 @@ export const RagVault: React.FC<RagVaultProps> = ({ onDocCountChange }) => {
             >
               <CheckCircle2 size={14} color="#10B981" />
               <span>{uploadSuccess}</span>
+            </div>
+          )}
+
+          {uploadError && (
+            <div
+              className="mono"
+              style={{
+                fontSize: '11px',
+                fontWeight: 600,
+                color: '#991B1B',
+                backgroundColor: '#FEF2F2',
+                border: '1px solid #EF4444',
+                padding: '8px 12px',
+                marginBottom: '16px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+              }}
+            >
+              <AlertCircle size={14} color="#EF4444" />
+              <span>{uploadError}</span>
             </div>
           )}
 
@@ -279,6 +303,47 @@ export const RagVault: React.FC<RagVaultProps> = ({ onDocCountChange }) => {
               />
             </div>
           </form>
+
+          {searchError && (
+            <div
+              className="mono"
+              style={{
+                fontSize: '11px',
+                fontWeight: 600,
+                color: '#991B1B',
+                backgroundColor: '#FEF2F2',
+                border: '1px solid #EF4444',
+                padding: '8px 12px',
+                marginBottom: '12px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+              }}
+            >
+              <AlertCircle size={14} color="#EF4444" />
+              <span>{searchError}</span>
+            </div>
+          )}
+
+          {isPreviousResults && (
+            <div
+              className="mono"
+              style={{
+                fontSize: '10px',
+                fontWeight: 600,
+                color: '#92400E',
+                backgroundColor: '#FFFBEB',
+                border: '1px solid #F59E0B',
+                padding: '6px 10px',
+                marginBottom: '12px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '5px',
+              }}
+            >
+              <span>⚠️ DISPLAYING PREVIOUS / BASE RESULTS (Latest search query failed)</span>
+            </div>
+          )}
 
           {/* Results List */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>

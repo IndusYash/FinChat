@@ -132,6 +132,20 @@ class AnalyzeRequest(BaseModel):
 def api_analyze(req: AnalyzeRequest):
     try:
         from agent_engine import FinancialAgentEngine
+    except ImportError as ie:
+        print(f"⚠️ FinancialAgentEngine dependency missing: {ie}")
+        raise HTTPException(
+            status_code=503,
+            detail="Financial analysis engine dependencies are unavailable on this server.",
+        )
+    except Exception as e:
+        print(f"⚠️ Unexpected error importing FinancialAgentEngine: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to initialize financial analysis engine.",
+        )
+
+    try:
         agent = FinancialAgentEngine()
         verdict, tool_records, narrative = agent.execute_plan(req.query, active_ticker=req.ticker)
         return {
@@ -140,17 +154,14 @@ def api_analyze(req: AnalyzeRequest):
             "narrative": narrative,
             "engine_status": "real_python_execution",
         }
+    except HTTPException:
+        raise
     except Exception as e:
-        return {
-            "verdict": {
-                "ticker": req.ticker,
-                "stance": "BULLISH",
-                "target_price_range": [180.0, 205.0],
-                "current_price": 187.50,
-            },
-            "error": str(e),
-            "engine_status": "fallback_simulation",
-        }
+        print(f"⚠️ Error executing financial analysis plan for {req.ticker}: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Financial analysis execution failed for ticker '{req.ticker}'.",
+        )
 
 # ── DYNAMIC USER RAG SESSION STORAGE ────────────────────────────
 SESSION_STORES: Dict[str, List[Dict[str, Any]]] = {}
@@ -634,19 +645,100 @@ def get_stock_data(ticker: str):
         except Exception as e:
             print(f"Error fetching Market Stack EOD data: {e}")
 
+    # ── Fallback: Market Tools (yfinance) for live quote & fundamentals ──
+    if price == 0.0:
+        try:
+            from market_tools import MarketTools
+            quote = MarketTools.get_live_quote(ticker)
+            if (quote.get("last_price", 0.0) <= 0) and ("." not in ticker) and ("^" not in ticker):
+                # Try NSE symbol (.NS) for Indian equities
+                nse_quote = MarketTools.get_live_quote(f"{ticker}.NS")
+                if nse_quote.get("last_price", 0.0) > 0:
+                    ticker = f"{ticker}.NS"
+                    quote = nse_quote
+
+            if quote.get("last_price", 0.0) > 0:
+                price = float(quote["last_price"])
+                change = float(quote.get("change", 0.0))
+                change_percent = float(quote.get("change_pct", 0.0))
+                is_indian = ticker.endswith(".NS") or ticker.endswith(".BO") or quote.get("currency") == "INR"
+                curr = "₹" if is_indian else "$"
+                if quote.get("year_low") and quote.get("year_high"):
+                    range_52 = f"{curr}{quote['year_low']} - {curr}{quote['year_high']}"
+                if quote.get("market_cap"):
+                    mc = quote["market_cap"]
+                    if is_indian:
+                        mc_cr = mc / 1e7
+                        if mc_cr >= 100000:
+                            market_cap = f"₹{mc_cr / 100000:.2f} L Cr"
+                        else:
+                            market_cap = f"₹{mc_cr:,.0f} Cr"
+                    else:
+                        if mc >= 1e12:
+                            market_cap = f"${mc / 1e12:.2f}T"
+                        elif mc >= 1e9:
+                            market_cap = f"${mc / 1e9:.2f}B"
+                        else:
+                            market_cap = f"${mc / 1e6:.2f}M"
+        except Exception as e:
+            print(f"Error fetching MarketTools live quote for {ticker}: {e}")
+
+    if name == f"{ticker} Inc." or pe_ratio == "N/A":
+        try:
+            from market_tools import MarketTools
+            fund = MarketTools.get_company_fundamentals(ticker)
+            if fund.get("company_name") and fund["company_name"] != ticker:
+                name = fund["company_name"]
+            if pe_ratio == "N/A" and fund.get("trailing_pe") != "N/A":
+                pe_ratio = fund["trailing_pe"]
+            if div_yield == "N/A" and fund.get("dividend_yield") != "N/A":
+                div_yield = fund["dividend_yield"]
+        except Exception as e:
+            pass
+
+    # Attempt to fetch real corporate news via MarketTools
+    try:
+        from market_tools import MarketTools
+        real_news = MarketTools.get_ticker_news(ticker, limit=4)
+        if real_news:
+            news_list = [
+                {
+                    "id": f"live_news_{i}",
+                    "headline": item.title,
+                    "summary": item.title,
+                    "source": item.publisher,
+                    "sentiment": item.sentiment.lower(),
+                    "time": item.time or "Recent",
+                    "origin": "Live Provider News"
+                }
+                for i, item in enumerate(real_news)
+            ]
+    except Exception as e:
+        pass
+
+    if price <= 0.0:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Stock data not found for ticker '{ticker}'."
+        )
+
     if not chart_data:
         chart_data = [
-            { "date": "Mon", "price": price * 0.97 },
-            { "date": "Tue", "price": price * 0.99 },
-            { "date": "Wed", "price": price * 0.98 },
-            { "date": "Thu", "price": price * 1.01 },
-            { "date": "Fri", "price": price }
+            { "date": "Mon", "price": round(price * 0.97, 2) },
+            { "date": "Tue", "price": round(price * 0.99, 2) },
+            { "date": "Wed", "price": round(price * 0.98, 2) },
+            { "date": "Thu", "price": round(price * 1.01, 2) },
+            { "date": "Fri", "price": round(price, 2) }
         ]
+
+    is_indian = ticker.endswith(".NS") or ticker.endswith(".BO") or ticker.startswith("^NSE") or ticker.startswith("^BSE")
+    exchange = "NSE" if ticker.endswith(".NS") or ticker.startswith("^NSE") else ("BSE" if ticker.endswith(".BO") or ticker.startswith("^BSE") else "US")
+    currency = "INR" if is_indian else "USD"
 
     return {
         "symbol": ticker,
         "name": name,
-        "price": price if price > 0 else 100.0,
+        "price": price,
         "change": change,
         "changePercent": change_percent,
         "marketCap": market_cap,
@@ -654,6 +746,8 @@ def get_stock_data(ticker: str):
         "dividendYield": div_yield,
         "volume": volume,
         "fiftyTwoWeekRange": range_52,
+        "exchange": exchange,
+        "currency": currency,
         "analystConsensus": { "buy": buy, "hold": hold, "sell": sell },
         "chartData": chart_data,
         "news": news_list

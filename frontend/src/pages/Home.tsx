@@ -9,10 +9,10 @@ interface HomeProps {
 }
 
 const CHIPS = [
-  { ticker: 'AAPL', label: 'Apple valuation & P/E' },
-  { ticker: 'TSLA', label: 'Tesla margin risks'    },
-  { ticker: 'NVDA', label: 'Nvidia Monte Carlo VaR' },
-  { ticker: 'MSFT', label: 'Microsoft 10-K risks'  },
+  { ticker: 'RELIANCE.NS', label: 'Reliance valuation & retail growth' },
+  { ticker: 'TCS.NS', label: 'TCS margins & deal pipeline' },
+  { ticker: 'HDFCBANK.NS', label: 'HDFC Bank post-merger NIMs' },
+  { ticker: 'INFY.NS', label: 'Infosys FY25 guidance' },
 ];
 
 // Sparkline for the hero background
@@ -73,7 +73,7 @@ export const Home: React.FC<HomeProps> = ({ onStartAnalysis }) => {
   const handleSubmit = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!prompt.trim()) return;
-    const detected = detectBrandOrTicker(prompt) || 'AAPL';
+    const detected = detectBrandOrTicker(prompt) || 'RELIANCE.NS';
     onStartAnalysis(prompt.trim(), detected);
   };
 

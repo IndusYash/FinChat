@@ -1,6 +1,23 @@
 import type { StockData, NewsItem, RagDocument } from '../types';
 
 export const BRAND_MAP: Record<string, string> = {
+  reliance: 'RELIANCE.NS',
+  ril: 'RELIANCE.NS',
+  tcs: 'TCS.NS',
+  infosys: 'INFY.NS',
+  infy: 'INFY.NS',
+  hdfc: 'HDFCBANK.NS',
+  hdfcbank: 'HDFCBANK.NS',
+  icici: 'ICICIBANK.NS',
+  icicibank: 'ICICIBANK.NS',
+  sbi: 'SBIN.NS',
+  sbin: 'SBIN.NS',
+  airtel: 'BHARTIARTL.NS',
+  bharti: 'BHARTIARTL.NS',
+  bhartiartl: 'BHARTIARTL.NS',
+  nifty: '^NSEI',
+  nifty50: '^NSEI',
+  sensex: '^BSESN',
   apple: 'AAPL',
   aapl: 'AAPL',
   iphone: 'AAPL',

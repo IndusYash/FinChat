@@ -51,27 +51,62 @@ class MarketTools:
     @staticmethod
     def get_live_quote(ticker: str) -> Dict[str, Any]:
         """Fetches real-time price snapshot, day range, volume, and 52-week statistics."""
-        stock = yf.Ticker(ticker)
-        fast_info = stock.fast_info
+        try:
+            stock = yf.Ticker(ticker)
+            fast_info = stock.fast_info
 
-        last_price = float(fast_info.get("lastPrice", 0.0) or 0.0)
-        prev_close = float(fast_info.get("previousClose", 0.0) or last_price)
-        change = round(last_price - prev_close, 2)
-        change_pct = round((change / prev_close) * 100, 2) if prev_close > 0 else 0.0
+            try:
+                last_price = float(fast_info.get("lastPrice", 0.0) or 0.0)
+            except Exception:
+                last_price = 0.0
 
-        return {
-            "ticker": ticker.upper(),
-            "last_price": round(last_price, 2),
-            "previous_close": round(prev_close, 2),
-            "change": change,
-            "change_pct": change_pct,
-            "day_high": round(float(fast_info.get("dayHigh", 0.0) or 0.0), 2),
-            "day_low": round(float(fast_info.get("dayLow", 0.0) or 0.0), 2),
-            "year_high": round(float(fast_info.get("yearHigh", 0.0) or 0.0), 2),
-            "year_low": round(float(fast_info.get("yearLow", 0.0) or 0.0), 2),
-            "market_cap": float(fast_info.get("marketCap", 0.0) or 0.0),
-            "currency": fast_info.get("currency", "USD"),
-        }
+            try:
+                prev_close = float(fast_info.get("previousClose", 0.0) or last_price)
+            except Exception:
+                prev_close = last_price
+
+            change = round(last_price - prev_close, 2)
+            change_pct = round((change / prev_close) * 100, 2) if prev_close > 0 else 0.0
+
+            def _safe_float(key):
+                try:
+                    return float(fast_info.get(key, 0.0) or 0.0)
+                except Exception:
+                    return 0.0
+
+            def _safe_str(key, default):
+                try:
+                    return fast_info.get(key, default) or default
+                except Exception:
+                    return default
+
+            return {
+                "ticker": ticker.upper(),
+                "last_price": round(last_price, 2),
+                "previous_close": round(prev_close, 2),
+                "change": change,
+                "change_pct": change_pct,
+                "day_high": round(_safe_float("dayHigh"), 2),
+                "day_low": round(_safe_float("dayLow"), 2),
+                "year_high": round(_safe_float("yearHigh"), 2),
+                "year_low": round(_safe_float("yearLow"), 2),
+                "market_cap": _safe_float("marketCap"),
+                "currency": _safe_str("currency", "USD"),
+            }
+        except Exception:
+            return {
+                "ticker": ticker.upper(),
+                "last_price": 0.0,
+                "previous_close": 0.0,
+                "change": 0.0,
+                "change_pct": 0.0,
+                "day_high": 0.0,
+                "day_low": 0.0,
+                "year_high": 0.0,
+                "year_low": 0.0,
+                "market_cap": 0.0,
+                "currency": "USD",
+            }
 
     @staticmethod
     def get_company_fundamentals(ticker: str) -> Dict[str, Any]:

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import type { StockData } from '../types';
+import { getCurrencySymbol } from '../types';
 
 interface QuantLabProps {
   currentStock: StockData;
@@ -10,6 +11,7 @@ export const QuantLab: React.FC<QuantLabProps> = ({ currentStock }) => {
   const [terminalGrowth, setTerminalGrowth] = useState(0.025);
   const [fcfGrowth, setFcfGrowth] = useState(0.08);
   const [mcDays, setMcDays] = useState<30 | 90 | 180 | 252>(90);
+  const currSym = getCurrencySymbol(currentStock);
 
   // Deterministic DCF Calculation
   const baseFcf = currentStock.price * 0.045; // proxy FCF per share
@@ -67,7 +69,7 @@ export const QuantLab: React.FC<QuantLabProps> = ({ currentStock }) => {
         </div>
 
         <div className="mono" style={{ fontSize: '13px', fontWeight: 700, border: '1px solid #000000', padding: '4px 12px' }}>
-          {currentStock.symbol} (${currentStock.price.toFixed(2)})
+          {currentStock.symbol} ({currSym}{currentStock.price.toFixed(2)})
         </div>
       </div>
 
@@ -94,11 +96,11 @@ export const QuantLab: React.FC<QuantLabProps> = ({ currentStock }) => {
           >
             <div>
               <div className="mono" style={{ fontSize: '10px', color: '#6B7280' }}>BASE FAIR VALUE</div>
-              <div className="mono" style={{ fontSize: '17px', fontWeight: 700 }}>${baseFairValue.toFixed(2)}</div>
+              <div className="mono" style={{ fontSize: '17px', fontWeight: 700 }}>{currSym}{baseFairValue.toFixed(2)}</div>
             </div>
             <div>
               <div className="mono" style={{ fontSize: '10px', color: '#6B7280' }}>CURRENT PRICE</div>
-              <div className="mono" style={{ fontSize: '17px', fontWeight: 700 }}>${currentStock.price.toFixed(2)}</div>
+              <div className="mono" style={{ fontSize: '17px', fontWeight: 700 }}>{currSym}{currentStock.price.toFixed(2)}</div>
             </div>
             <div>
               <div className="mono" style={{ fontSize: '10px', color: '#6B7280' }}>IMPLIED UPSIDE</div>
@@ -202,7 +204,7 @@ export const QuantLab: React.FC<QuantLabProps> = ({ currentStock }) => {
                           color: isUpside ? '#065F46' : '#991B1B',
                         }}
                       >
-                        ${val.toFixed(1)}
+                        {currSym}{val.toFixed(1)}
                       </td>
                     );
                   })}
@@ -258,19 +260,19 @@ export const QuantLab: React.FC<QuantLabProps> = ({ currentStock }) => {
           >
             <div>
               <div className="mono" style={{ fontSize: '10px', color: '#6B7280' }}>MEDIAN (50th)</div>
-              <div className="mono" style={{ fontSize: '15px', fontWeight: 700 }}>${meanFinalPrice.toFixed(2)}</div>
+              <div className="mono" style={{ fontSize: '15px', fontWeight: 700 }}>{currSym}{meanFinalPrice.toFixed(2)}</div>
             </div>
             <div>
               <div className="mono" style={{ fontSize: '10px', color: '#6B7280' }}>BEAR (5th %ile)</div>
-              <div className="mono" style={{ fontSize: '15px', fontWeight: 700, color: '#EF4444' }}>${bear5thPrice.toFixed(2)}</div>
+              <div className="mono" style={{ fontSize: '15px', fontWeight: 700, color: '#EF4444' }}>{currSym}{bear5thPrice.toFixed(2)}</div>
             </div>
             <div>
               <div className="mono" style={{ fontSize: '10px', color: '#6B7280' }}>BULL (95th %ile)</div>
-              <div className="mono" style={{ fontSize: '15px', fontWeight: 700, color: '#10B981' }}>${bull95thPrice.toFixed(2)}</div>
+              <div className="mono" style={{ fontSize: '15px', fontWeight: 700, color: '#10B981' }}>{currSym}{bull95thPrice.toFixed(2)}</div>
             </div>
             <div>
               <div className="mono" style={{ fontSize: '10px', color: '#6B7280' }}>95% VaR</div>
-              <div className="mono" style={{ fontSize: '15px', fontWeight: 700 }}>-${valueAtRisk95.toFixed(2)}</div>
+              <div className="mono" style={{ fontSize: '15px', fontWeight: 700 }}>-{currSym}{valueAtRisk95.toFixed(2)}</div>
             </div>
           </div>
 
@@ -302,9 +304,9 @@ export const QuantLab: React.FC<QuantLabProps> = ({ currentStock }) => {
               <path d="M 40,100 Q 180,115 360,140 T 520,165" fill="none" stroke="#EF4444" strokeWidth="2.0" />
 
               {/* Labels on SVG */}
-              <text x="525" y="40" fontSize="9" fill="#059669" fontFamily="JetBrains Mono, monospace">95% (${bull95thPrice.toFixed(0)})</text>
-              <text x="525" y="94" fontSize="9" fill="#000000" fontFamily="JetBrains Mono, monospace">50% (${meanFinalPrice.toFixed(0)})</text>
-              <text x="525" y="168" fontSize="9" fill="#DC2626" fontFamily="JetBrains Mono, monospace">5% (${bear5thPrice.toFixed(0)})</text>
+              <text x="525" y="40" fontSize="9" fill="#059669" fontFamily="JetBrains Mono, monospace">95% ({currSym}{bull95thPrice.toFixed(0)})</text>
+              <text x="525" y="94" fontSize="9" fill="#000000" fontFamily="JetBrains Mono, monospace">50% ({currSym}{meanFinalPrice.toFixed(0)})</text>
+              <text x="525" y="168" fontSize="9" fill="#DC2626" fontFamily="JetBrains Mono, monospace">5% ({currSym}{bear5thPrice.toFixed(0)})</text>
             </svg>
           </div>
 
@@ -318,7 +320,7 @@ export const QuantLab: React.FC<QuantLabProps> = ({ currentStock }) => {
               lineHeight: 1.5,
             }}
           >
-            <strong>Probability of Profit: {probProfit}%</strong>. With 95% statistical confidence, the maximum downside draw over {mcDays} days will not exceed ${valueAtRisk95.toFixed(2)} per share.
+            <strong>Probability of Profit: {probProfit}%</strong>. With 95% statistical confidence, the maximum downside draw over {mcDays} days will not exceed {currSym}{valueAtRisk95.toFixed(2)} per share.
           </div>
         </div>
       </div>

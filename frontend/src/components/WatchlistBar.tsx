@@ -1,16 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { Star, ArrowUpRight, ArrowDownRight, X } from 'lucide-react';
-import { STOCK_DATABASE } from '../data/mockData';
+import type { StockData } from '../types';
+import { getCurrencySymbol } from '../types';
 
 interface WatchlistBarProps {
   activeSymbol: string;
+  currentStock?: StockData;
   onSelectSymbol: (symbol: string) => void;
 }
 
-const DEFAULT_WATCHLIST = ['AAPL', 'NVDA', 'TSLA', 'MSFT'];
+const DEFAULT_WATCHLIST = ['RELIANCE.NS', 'TCS.NS', 'INFY.NS', 'HDFCBANK.NS'];
 const STORAGE_KEY = 'finchat_user_watchlist';
 
-export const WatchlistBar: React.FC<WatchlistBarProps> = ({ activeSymbol, onSelectSymbol }) => {
+export const WatchlistBar: React.FC<WatchlistBarProps> = ({ activeSymbol, currentStock, onSelectSymbol }) => {
   const [watchlist, setWatchlist] = useState<string[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
@@ -82,9 +84,10 @@ export const WatchlistBar: React.FC<WatchlistBarProps> = ({ activeSymbol, onSele
         </span>
 
         {watchlist.map((sym) => {
-          const data = STOCK_DATABASE[sym];
           const isSelected = sym === activeSymbol;
-          const isUp = (data?.change || 0) >= 0;
+          const liveData = isSelected ? currentStock : undefined;
+          const isUp = liveData ? liveData.change >= 0 : true;
+          const currSym = liveData ? getCurrencySymbol(liveData) : getCurrencySymbol(sym);
 
           return (
             <div
@@ -106,7 +109,7 @@ export const WatchlistBar: React.FC<WatchlistBarProps> = ({ activeSymbol, onSele
               }}
             >
               <span>{sym}</span>
-              {data && (
+              {liveData && typeof liveData.price === 'number' && (
                 <span
                   style={{
                     fontSize: '10px',
@@ -116,8 +119,13 @@ export const WatchlistBar: React.FC<WatchlistBarProps> = ({ activeSymbol, onSele
                     alignItems: 'center',
                   }}
                 >
-                  ${data.price.toFixed(1)}
+                  {currSym}{liveData.price.toFixed(1)}
                   {isUp ? <ArrowUpRight size={10} /> : <ArrowDownRight size={10} />}
+                </span>
+              )}
+              {!isSelected && (
+                <span style={{ fontSize: '9px', color: '#9CA3AF', fontWeight: 500 }}>
+                  {sym.endsWith('.NS') ? 'NSE' : sym.endsWith('.BO') ? 'BSE' : ''}
                 </span>
               )}
               {watchlist.length > 1 && (

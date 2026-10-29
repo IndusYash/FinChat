@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Search, Send, ArrowUpRight, Wrench, FileText, Share2, Check, HelpCircle } from 'lucide-react';
+import { Search, Send, ArrowUpRight, Wrench, FileText, Share2, Check, HelpCircle, AlertCircle } from 'lucide-react';
 import type { StockData, Message } from '../types';
+import { getCurrencySymbol } from '../types';
 import { ResearchMemoModal } from '../components/ResearchMemoModal';
 import { StockComparison } from '../components/StockComparison';
 import { WatchlistBar } from '../components/WatchlistBar';
@@ -15,6 +16,10 @@ interface DashboardProps {
   onSearchSubmit: (e?: React.FormEvent) => void;
   messages: Message[];
   onSendMessage: (text: string) => void;
+  /** True while a backend request is in-flight */
+  isAnalyzing: boolean;
+  isStockLoading?: boolean;
+  stockError?: string | null;
   timeframe: '1D' | '1W' | '1M' | '1Y';
   onTimeframeChange: (tf: '1D' | '1W' | '1M' | '1Y') => void;
   modelMode: 'FINE-TUNED' | 'CLOUD';
@@ -29,6 +34,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
   onSearchSubmit,
   messages,
   onSendMessage,
+  isAnalyzing,
+  isStockLoading = false,
+  stockError = null,
   timeframe,
   onTimeframeChange,
   modelMode,
@@ -52,17 +60,19 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
   const handleFormSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inputQuestion.trim()) return;
+    if (!inputQuestion.trim() || isAnalyzing) return;
     onSendMessage(inputQuestion.trim());
     setInputQuestion('');
   };
 
+  const currSym = getCurrencySymbol(currentStock);
+
   const handleShareStock = () => {
-    const text = `📈 FINCHAT BRIEF: ${currentStock.name} ($${currentStock.symbol})
-• Price: $${currentStock.price.toFixed(2)} (${currentStock.changePct >= 0 ? '+' : ''}${currentStock.changePct.toFixed(2)}%)
+    const text = `📈 FINCHAT BRIEF: ${currentStock.name} (${currentStock.symbol})
+• Price: ${currSym}${currentStock.price.toFixed(2)} (${currentStock.changePct >= 0 ? '+' : ''}${currentStock.changePct.toFixed(2)}%)
 • Market Cap: ${currentStock.marketCap} | P/E: ${currentStock.peRatio}x
 • Consensus: ${currentStock.buyPct}% BUY / ${currentStock.holdPct}% HOLD
-• Fair Value (DCF): $${(currentStock.price * 0.92).toFixed(1)} - $${(currentStock.price * 1.08).toFixed(1)}
+• Fair Value (DCF): ${currSym}${(currentStock.price * 0.92).toFixed(1)} - ${currSym}${(currentStock.price * 1.08).toFixed(1)}
 Explore on FinChat: https://investo-bot-xi.vercel.app/`;
 
     navigator.clipboard.writeText(text);
@@ -248,6 +258,7 @@ Explore on FinChat: https://investo-bot-xi.vercel.app/`;
               {/* Watchlist Bar */}
               <WatchlistBar
                 activeSymbol={activeSymbol}
+                currentStock={currentStock}
                 onSelectSymbol={(sym) => {
                   onSearchChange(sym);
                   onSearchSubmit();
@@ -255,12 +266,13 @@ Explore on FinChat: https://investo-bot-xi.vercel.app/`;
               />
 
               {/* Search Bar */}
-              <form onSubmit={onSearchSubmit} style={{ display: 'flex', marginBottom: '14px' }}>
+              <form onSubmit={onSearchSubmit} style={{ display: 'flex', marginBottom: stockError ? '8px' : '14px' }}>
                 <input
                   type="text"
                   value={searchSymbol}
                   onChange={(e) => onSearchChange(e.target.value)}
-                  placeholder="Search symbol (AAPL, TSLA, MSFT)..."
+                  placeholder="Search symbol (RELIANCE, TCS, INFY, AAPL)..."
+                  disabled={isStockLoading}
                   style={{
                     flex: 1,
                     padding: '9px 14px',
@@ -269,28 +281,52 @@ Explore on FinChat: https://investo-bot-xi.vercel.app/`;
                     outline: 'none',
                     fontSize: '13px',
                     fontFamily: 'Inter, sans-serif',
+                    opacity: isStockLoading ? 0.6 : 1,
+                    cursor: isStockLoading ? 'not-allowed' : 'text',
                   }}
                 />
                 <button
                   type="submit"
+                  disabled={isStockLoading}
                   className="mono"
                   style={{
-                    backgroundColor: '#000000',
+                    backgroundColor: isStockLoading ? '#4B5563' : '#000000',
                     color: '#FFFFFF',
-                    border: '1px solid #000000',
+                    border: `1px solid ${isStockLoading ? '#4B5563' : '#000000'}`,
                     padding: '0 18px',
                     fontSize: '12px',
                     fontWeight: 700,
                     letterSpacing: '0.05em',
-                    cursor: 'pointer',
+                    cursor: isStockLoading ? 'not-allowed' : 'pointer',
                     display: 'flex',
                     alignItems: 'center',
                     gap: '6px',
                   }}
                 >
-                  <Search size={14} /> LOAD
+                  <Search size={14} /> {isStockLoading ? 'LOADING...' : 'LOAD'}
                 </button>
               </form>
+
+              {stockError && (
+                <div
+                  className="mono"
+                  style={{
+                    fontSize: '11px',
+                    fontWeight: 600,
+                    color: currentStock.isSampleData ? '#92400E' : '#991B1B',
+                    backgroundColor: currentStock.isSampleData ? '#FFFBEB' : '#FEF2F2',
+                    border: `1px solid ${currentStock.isSampleData ? '#F59E0B' : '#EF4444'}`,
+                    padding: '7px 12px',
+                    marginBottom: '14px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                  }}
+                >
+                  <AlertCircle size={13} color={currentStock.isSampleData ? '#D97706' : '#EF4444'} />
+                  <span>{stockError}</span>
+                </div>
+              )}
 
         {/* Metric Bar */}
         <div
@@ -303,8 +339,17 @@ Explore on FinChat: https://investo-bot-xi.vercel.app/`;
           }}
         >
           <div>
-            <div className="mono" style={{ fontSize: '10px', color: '#6B7280', marginBottom: '4px' }}>
-              SYMBOL
+            <div className="mono" style={{ fontSize: '10px', color: '#6B7280', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '5px' }}>
+              <span>SYMBOL</span>
+              {currentStock.isSampleData ? (
+                <span style={{ fontSize: '8px', fontWeight: 700, backgroundColor: '#FEF3C7', color: '#92400E', border: '1px solid #FCD34D', padding: '0 4px' }}>
+                  SAMPLE DATA
+                </span>
+              ) : (
+                <span style={{ fontSize: '8px', fontWeight: 700, backgroundColor: '#ECFDF5', color: '#065F46', border: '1px solid #10B981', padding: '0 4px' }}>
+                  LIVE PROVIDER DATA
+                </span>
+              )}
             </div>
             <div className="mono" style={{ fontSize: '18px', fontWeight: 700 }}>
               {currentStock.symbol}
@@ -315,7 +360,7 @@ Explore on FinChat: https://investo-bot-xi.vercel.app/`;
               LAST PRICE
             </div>
             <div className="mono" style={{ fontSize: '18px', fontWeight: 700 }}>
-              ${currentStock.price.toFixed(2)}
+              {currSym}{currentStock.price.toFixed(2)}
             </div>
           </div>
           <div>
@@ -332,7 +377,7 @@ Explore on FinChat: https://investo-bot-xi.vercel.app/`;
                 alignItems: 'center',
               }}
             >
-              <ArrowUpRight size={15} /> +{currentStock.change.toFixed(2)}
+              <ArrowUpRight size={15} /> {currentStock.change >= 0 ? '+' : ''}{currentStock.change.toFixed(2)}
             </div>
           </div>
           <div>
@@ -347,7 +392,7 @@ Explore on FinChat: https://investo-bot-xi.vercel.app/`;
                 color: currentStock.changePct >= 0 ? '#10B981' : '#EF4444',
               }}
             >
-              +{currentStock.changePct.toFixed(2)}%
+              {currentStock.changePct >= 0 ? '+' : ''}{currentStock.changePct.toFixed(2)}%
             </div>
           </div>
         </div>
@@ -464,7 +509,7 @@ Explore on FinChat: https://investo-bot-xi.vercel.app/`;
                 </p>
                 <strong>• Are you paying a premium? (P/E Ratio)</strong>
                 <p style={{ margin: '2px 0 0 0', color: '#374151' }}>
-                  P/E is <strong>{currentStock.peRatio}x</strong>. You are paying ${currentStock.peRatio} today for every $1 of real profit {currentStock.name} earns annually.
+                  P/E is <strong>{currentStock.peRatio}x</strong>. You are paying {currSym}{currentStock.peRatio} today for every {currSym}1 of real profit {currentStock.name} earns annually.
                 </p>
               </div>
               <div>
@@ -474,7 +519,7 @@ Explore on FinChat: https://investo-bot-xi.vercel.app/`;
                 </p>
                 <strong>• Everyday Price Action:</strong>
                 <p style={{ margin: '2px 0 0 0', color: '#374151' }}>
-                  Currently trading at <strong>${currentStock.price.toFixed(2)}</strong> ({currentStock.changePct >= 0 ? '+' : ''}{currentStock.changePct.toFixed(2)}% recently).
+                  Currently trading at <strong>{currSym}{currentStock.price.toFixed(2)}</strong> ({currentStock.changePct >= 0 ? '+' : ''}{currentStock.changePct.toFixed(2)}% recently).
                 </p>
               </div>
             </div>
@@ -654,7 +699,7 @@ Explore on FinChat: https://investo-bot-xi.vercel.app/`;
                           {m.verdict.stance}
                         </span>
                         <span className="target-range">
-                          ${m.verdict.targetRange[0]} – ${m.verdict.targetRange[1]}
+                          {currSym}{m.verdict.targetRange[0]} – {currSym}{m.verdict.targetRange[1]}
                         </span>
                       </>
                     )}
@@ -668,7 +713,14 @@ Explore on FinChat: https://investo-bot-xi.vercel.app/`;
                   </div>
                 )}
 
-                <div style={{ fontSize: '12px', lineHeight: 1.55, whiteSpace: 'pre-line' }}>{m.content}</div>
+                {m.isLoading ? (
+                  <div className="mono" style={{ fontSize: '11px', color: '#6B7280', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span style={{ display: 'inline-block', animation: 'spin 1s linear infinite' }}>⟳</span>
+                    Running financial analysis engine…
+                  </div>
+                ) : (
+                  <div style={{ fontSize: '12px', lineHeight: 1.55, whiteSpace: 'pre-line' }}>{m.content}</div>
+                )}
               </div>
             ))
           )}
@@ -688,7 +740,8 @@ Explore on FinChat: https://investo-bot-xi.vercel.app/`;
             type="text"
             value={inputQuestion}
             onChange={(e) => setInputQuestion(e.target.value)}
-            placeholder={`Ask FinChat about ${activeSymbol}...`}
+            placeholder={isAnalyzing ? 'Analysing — please wait…' : `Ask FinChat about ${activeSymbol}...`}
+            disabled={isAnalyzing}
             style={{
               flex: 1,
               padding: '9px 12px',
@@ -697,26 +750,29 @@ Explore on FinChat: https://investo-bot-xi.vercel.app/`;
               outline: 'none',
               fontSize: '12px',
               fontFamily: 'Inter, sans-serif',
+              opacity: isAnalyzing ? 0.55 : 1,
+              cursor: isAnalyzing ? 'not-allowed' : 'text',
             }}
           />
           <button
             type="submit"
+            disabled={isAnalyzing}
             className="mono"
             style={{
-              backgroundColor: '#000000',
+              backgroundColor: isAnalyzing ? '#6B7280' : '#000000',
               color: '#FFFFFF',
-              border: '1px solid #000000',
+              border: `1px solid ${isAnalyzing ? '#6B7280' : '#000000'}`,
               padding: '0 16px',
               fontSize: '11px',
               fontWeight: 700,
               letterSpacing: '0.04em',
-              cursor: 'pointer',
+              cursor: isAnalyzing ? 'not-allowed' : 'pointer',
               display: 'flex',
               alignItems: 'center',
               gap: '5px',
             }}
           >
-            <Send size={12} /> SEND
+            <Send size={12} /> {isAnalyzing ? '…' : 'SEND'}
           </button>
         </form>
       </div>

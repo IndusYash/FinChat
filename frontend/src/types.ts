@@ -16,6 +16,32 @@ export interface StockData {
   holdPct: number;
   sellPct: number;
   points: { [key: string]: { labels: string[]; values: number[] } };
+  isSampleData?: boolean;
+  currency?: string;
+  exchange?: string;
+  news?: NewsItem[];
+}
+
+export function getCurrencySymbol(stockOrSymbol?: StockData | string): string {
+  if (!stockOrSymbol) return '₹';
+  if (typeof stockOrSymbol === 'object') {
+    if (stockOrSymbol.currency === 'INR') return '₹';
+    if (stockOrSymbol.currency === 'USD') return '$';
+    return getCurrencySymbol(stockOrSymbol.symbol);
+  }
+  const s = stockOrSymbol.toUpperCase();
+  if (s.endsWith('.NS') || s.endsWith('.BO') || s.startsWith('^NSE') || s.startsWith('^BSE') || s === 'NIFTY') {
+    return '₹';
+  }
+  return '$';
+}
+
+export function formatPrice(price: number, symbol?: string, currency?: string): string {
+  const sym = getCurrencySymbol(currency === 'INR' ? 'RELIANCE.NS' : symbol || 'RELIANCE.NS');
+  if (sym === '₹') {
+    return `₹${price.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  }
+  return `$${price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 export interface NewsItem {
@@ -32,6 +58,8 @@ export interface Message {
   id: string;
   role: 'user' | 'assistant';
   content: string;
+  /** True while waiting for the backend response. Cleared on success or failure. */
+  isLoading?: boolean;
   toolCalls?: string[];
   verdict?: {
     stance: 'BULLISH' | 'BEARISH' | 'NEUTRAL';

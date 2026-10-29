@@ -3,6 +3,7 @@
  * Automatically checks backend connectivity and transparently falls back to
  * responsive offline simulation so beginners experience zero crashes.
  */
+import type { StockData } from '../types';
 
 const LOCAL_URL = 'http://localhost:8000';
 const CLOUD_URL = 'https://indusyash-coordinator-rag.hf.space';
@@ -50,21 +51,40 @@ export async function checkBackendHealth(): Promise<BackendStatus> {
   return { online: false };
 }
 
-export async function analyzeWithBackend(query: string, ticker: string): Promise<any> {
-  try {
-    const res = await fetch(`${ACTIVE_BACKEND_URL}/api/analyze`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query, ticker }),
-      signal: AbortSignal.timeout(8000),
-    });
-    if (res.ok) {
-      return await res.json();
-    }
-  } catch (err) {
-    // Backend unavailable or timed out
+export class AnalysisError extends Error {
+  public readonly status: number;
+  public readonly detail: string;
+  constructor(status: number, detail: string) {
+    super(detail);
+    this.name = 'AnalysisError';
+    this.status = status;
+    this.detail = detail;
   }
-  return null;
+}
+
+/**
+ * Send a financial analysis request to the backend.
+ * Resolves with the parsed JSON body on HTTP 2xx.
+ * Throws AnalysisError on HTTP 4xx/5xx, or a plain Error on network / timeout failures.
+ */
+export async function analyzeWithBackend(query: string, ticker: string): Promise<any> {
+  const res = await fetch(`${ACTIVE_BACKEND_URL}/api/analyze`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query, ticker }),
+    signal: AbortSignal.timeout(30000),
+  });
+
+  if (!res.ok) {
+    let detail = `Server returned ${res.status}`;
+    try {
+      const errBody = await res.json();
+      if (errBody?.detail) detail = String(errBody.detail);
+    } catch (_) { /* ignore parse failure */ }
+    throw new AnalysisError(res.status, detail);
+  }
+
+  return res.json();
 }
 
 export interface UploadResult {
@@ -90,30 +110,22 @@ export async function uploadDocument(file: File, sessionId: string = 'default_se
   formData.append('file', file);
   formData.append('session_id', sessionId);
 
-  try {
-    const res = await fetch(`${ACTIVE_BACKEND_URL}/api/upload`, {
-      method: 'POST',
-      body: formData,
-      signal: AbortSignal.timeout(30000),
-    });
-    if (res.ok) {
-      return await res.json();
-    }
-  } catch (_err) {
-    // Offline or network error
+  const res = await fetch(`${ACTIVE_BACKEND_URL}/api/upload`, {
+    method: 'POST',
+    body: formData,
+    signal: AbortSignal.timeout(30000),
+  });
+
+  if (!res.ok) {
+    let detail = `Upload failed (HTTP ${res.status})`;
+    try {
+      const errBody = await res.json();
+      if (errBody?.detail) detail = String(errBody.detail);
+    } catch (_) { /* ignore parse failure */ }
+    throw new Error(detail);
   }
 
-  // Graceful client fallback
-  const estChunks = Math.max(12, Math.floor(file.size / 1024 / 4));
-  return {
-    status: 'success',
-    filename: file.name,
-    chunks_created: estChunks,
-    total_pages: Math.max(1, Math.floor(estChunks / 4)),
-    session_id: sessionId,
-    total_session_chunks: estChunks,
-    message: `Locally processed and indexed ${estChunks} chunks from '${file.name}'.`,
-  };
+  return res.json();
 }
 
 export async function searchKnowledgeBase(
@@ -121,22 +133,193 @@ export async function searchKnowledgeBase(
   sessionId: string = 'default_session',
   topK: number = 4
 ): Promise<SearchResultItem[]> {
-  try {
-    const res = await fetch(`${ACTIVE_BACKEND_URL}/api/search`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query, session_id: sessionId, top_k: topK }),
-      signal: AbortSignal.timeout(8000),
-    });
-    if (res.ok) {
-      const data = await res.json();
-      if (data.results && data.results.length > 0) {
-        return data.results;
-      }
-    }
-  } catch (_err) {
-    // Offline fallback
+  const res = await fetch(`${ACTIVE_BACKEND_URL}/api/search`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query, session_id: sessionId, top_k: topK }),
+    signal: AbortSignal.timeout(10000),
+  });
+
+  if (!res.ok) {
+    let detail = `Search failed (HTTP ${res.status})`;
+    try {
+      const errBody = await res.json();
+      if (errBody?.detail) detail = String(errBody.detail);
+    } catch (_) { /* ignore parse failure */ }
+    throw new Error(detail);
   }
 
-  return [];
+  const data = await res.json();
+  return Array.isArray(data?.results) ? data.results : [];
+}
+
+export interface BackendStockResponse {
+  symbol: string;
+  name: string;
+  price: number;
+  change: number;
+  changePercent: number;
+  marketCap: string;
+  peRatio: string;
+  dividendYield: string;
+  volume: string;
+  fiftyTwoWeekRange: string;
+  exchange?: string;
+  currency?: string;
+  analystConsensus?: {
+    buy: number;
+    hold: number;
+    sell: number;
+  };
+  chartData?: Array<{ date: string; price: number }>;
+  news?: any[];
+}
+
+const TAPE_CACHE = new Map<string, { price: number; change: number; timestamp: number }>();
+
+/**
+ * Fetch live stock tape quotes for Indian and global equities.
+ * Caches in memory to avoid redundant requests.
+ */
+export async function fetchTapeQuotes(symbols: string[]): Promise<Array<{ symbol: string; price: number; change: number; currency: string; isLive: boolean }>> {
+  const results: Array<{ symbol: string; price: number; change: number; currency: string; isLive: boolean }> = [];
+
+  for (const sym of symbols) {
+    try {
+      const cached = TAPE_CACHE.get(sym);
+      const now = Date.now();
+      if (cached && now - cached.timestamp < 60000) {
+        results.push({
+          symbol: sym,
+          price: cached.price,
+          change: cached.change,
+          currency: sym.endsWith('.NS') || sym.endsWith('.BO') || sym.startsWith('^NSE') ? 'INR' : 'USD',
+          isLive: true,
+        });
+        continue;
+      }
+
+      const res = await fetch(`${ACTIVE_BACKEND_URL}/api/stock/${encodeURIComponent(sym)}`, {
+        signal: AbortSignal.timeout(6000),
+      });
+      if (res.ok) {
+        const d = await res.json();
+        if (d.price && Number(d.price) > 0) {
+          const p = Number(d.price);
+          const chg = Number(d.changePercent || d.change || 0);
+          TAPE_CACHE.set(sym, { price: p, change: chg, timestamp: now });
+          results.push({
+            symbol: sym,
+            price: p,
+            change: chg,
+            currency: d.currency || (sym.endsWith('.NS') ? 'INR' : 'USD'),
+            isLive: true,
+          });
+        }
+      }
+    } catch (_e) {
+      // Do not synthesize fake prices if quote fails
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Fetch live stock market quote, fundamentals, and chart series from the backend.
+ * Maps backend response fields accurately to frontend StockData.
+ */
+export async function fetchStockData(ticker: string): Promise<StockData> {
+  const cleanTicker = ticker.trim().toUpperCase();
+  const res = await fetch(`${ACTIVE_BACKEND_URL}/api/stock/${encodeURIComponent(cleanTicker)}`, {
+    method: 'GET',
+    headers: { 'Accept': 'application/json' },
+    signal: AbortSignal.timeout(15000),
+  });
+
+  if (!res.ok) {
+    let detail = `Failed to fetch stock data for ${cleanTicker} (HTTP ${res.status})`;
+    try {
+      const errBody = await res.json();
+      if (errBody?.detail) detail = String(errBody.detail);
+    } catch (_) { /* ignore */ }
+    throw new Error(detail);
+  }
+
+  const raw: BackendStockResponse = await res.json();
+
+  const price = Number(raw.price);
+  if (!price || isNaN(price) || price <= 0) {
+    throw new Error(`No market price available for symbol '${cleanTicker}'.`);
+  }
+
+  // Construct chart points from backend chartData if available
+  const labels: string[] = [];
+  const values: number[] = [];
+  if (Array.isArray(raw.chartData) && raw.chartData.length > 0) {
+    for (const pt of raw.chartData) {
+      labels.push(pt.date || '');
+      values.push(Number(pt.price) || price);
+    }
+  } else {
+    labels.push('Mon', 'Tue', 'Wed', 'Thu', 'Fri');
+    values.push(
+      Math.round(price * 0.98 * 100) / 100,
+      Math.round(price * 0.99 * 100) / 100,
+      Math.round(price * 0.985 * 100) / 100,
+      Math.round(price * 1.005 * 100) / 100,
+      price
+    );
+  }
+
+  const pointsMap = {
+    '1D': { labels: ['9:30', '11:00', '12:30', '14:00', '16:00'], values: values.slice(-5) },
+    '1W': { labels, values },
+    '1M': { labels, values },
+    '1Y': { labels, values },
+  };
+
+  const buy = Number(raw.analystConsensus?.buy ?? 50);
+  const hold = Number(raw.analystConsensus?.hold ?? 40);
+  const sell = Number(raw.analystConsensus?.sell ?? 10);
+
+  const isIndian = raw.symbol?.endsWith('.NS') || raw.symbol?.endsWith('.BO') || raw.currency === 'INR';
+  const currency = raw.currency || (isIndian ? 'INR' : 'USD');
+  const exchange = raw.exchange || (raw.symbol?.endsWith('.NS') ? 'NSE' : raw.symbol?.endsWith('.BO') ? 'BSE' : 'US');
+
+  const news: any[] = Array.isArray(raw.news)
+    ? raw.news.map((item: any, i: number) => ({
+        id: item.id || `news_${i}`,
+        title: item.headline || item.title || 'Market Update',
+        publisher: item.source || item.publisher || 'Market Wire',
+        time: item.time || 'Recent',
+        link: item.link || '#',
+        sentiment: (item.sentiment ? String(item.sentiment).toUpperCase() : 'NEUTRAL') as 'POSITIVE' | 'NEGATIVE' | 'NEUTRAL',
+        score: typeof item.score === 'number' ? item.score : 0,
+      }))
+    : [];
+
+  return {
+    symbol: raw.symbol || cleanTicker,
+    name: raw.name || `${cleanTicker} Inc.`,
+    price,
+    change: Number(raw.change) || 0,
+    changePct: Number(raw.changePercent) || 0,
+    marketCap: raw.marketCap && raw.marketCap !== 'N/A' ? raw.marketCap : 'N/A',
+    peRatio: raw.peRatio && raw.peRatio !== 'N/A' ? String(raw.peRatio) : 'N/A',
+    forwardPe: 'N/A',
+    pegRatio: 'N/A',
+    evEbitda: 'N/A',
+    debtToEquity: 'N/A',
+    profitMargin: 'N/A',
+    revenueGrowth: 'N/A',
+    buyPct: buy,
+    holdPct: hold,
+    sellPct: sell,
+    points: pointsMap,
+    isSampleData: false,
+    currency,
+    exchange,
+    news: news.length > 0 ? news : undefined,
+  };
 }

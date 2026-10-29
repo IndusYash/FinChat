@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Clock } from 'lucide-react';
 import type { StockData } from '../types';
+import { getCurrencySymbol } from '../types';
 
 interface WhatIfCalculatorProps {
   stock: StockData;
@@ -23,7 +24,10 @@ const SPY_RETURNS: { '1Y': number; '3Y': number; '5Y': number } = {
 };
 
 export const WhatIfCalculator: React.FC<WhatIfCalculatorProps> = ({ stock }) => {
-  const [amount, setAmount] = useState<number>(1000);
+  const currSym = getCurrencySymbol(stock);
+  const isIndian = currSym === '₹';
+  const defaultPresets = isIndian ? [5000, 10000, 50000, 100000] : [500, 1000, 5000, 10000];
+  const [amount, setAmount] = useState<number>(isIndian ? 10000 : 1000);
   const [period, setPeriod] = useState<'1Y' | '3Y' | '5Y'>('5Y');
 
   const symbol = stock.symbol.toUpperCase();
@@ -38,6 +42,7 @@ export const WhatIfCalculator: React.FC<WhatIfCalculatorProps> = ({ stock }) => 
   const profit = totalValue - amount;
   const isGain = profit >= 0;
 
+  const benchmarkName = isIndian ? 'Nifty 50' : 'S&P 500';
   const spyMultiplier = SPY_RETURNS[period];
   const spyValue = amount * (1 + spyMultiplier);
   const diffVsSpy = totalValue - spyValue;
@@ -74,7 +79,7 @@ export const WhatIfCalculator: React.FC<WhatIfCalculatorProps> = ({ stock }) => 
           </span>
         </div>
         <span className="mono" style={{ fontSize: '10px', color: '#6B7280' }}>
-          {stock.symbol} vs S&P 500
+          {stock.symbol} vs {benchmarkName}
         </span>
       </div>
 
@@ -87,7 +92,7 @@ export const WhatIfCalculator: React.FC<WhatIfCalculatorProps> = ({ stock }) => 
               INITIAL INVESTMENT:
             </div>
             <div style={{ display: 'flex', gap: '6px' }}>
-              {[500, 1000, 5000, 10000].map((amt) => (
+              {defaultPresets.map((amt) => (
                 <button
                   key={amt}
                   type="button"
@@ -103,7 +108,7 @@ export const WhatIfCalculator: React.FC<WhatIfCalculatorProps> = ({ stock }) => 
                     cursor: 'pointer',
                   }}
                 >
-                  ${amt.toLocaleString()}
+                  {currSym}{amt.toLocaleString()}
                 </button>
               ))}
             </div>
@@ -158,11 +163,11 @@ export const WhatIfCalculator: React.FC<WhatIfCalculatorProps> = ({ stock }) => 
               marginBottom: '4px',
             }}
           >
-            ${totalValue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+            {currSym}{totalValue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '11px', fontWeight: 600 }}>
             <span style={{ color: isGain ? '#16A34A' : '#DC2626' }}>
-              {isGain ? '+' : ''}${Math.abs(profit).toLocaleString(undefined, { maximumFractionDigits: 0 })} (
+              {isGain ? '+' : ''}{currSym}{Math.abs(profit).toLocaleString(undefined, { maximumFractionDigits: 0 })} (
               {returnMultiplier >= 0 ? '+' : ''}{(returnMultiplier * 100).toFixed(0)}%)
             </span>
           </div>
@@ -178,9 +183,9 @@ export const WhatIfCalculator: React.FC<WhatIfCalculatorProps> = ({ stock }) => 
               justifyContent: 'space-between',
             }}
           >
-            <span>vs S&P 500 (${spyValue.toFixed(0)}):</span>
+            <span>vs {benchmarkName} ({currSym}{spyValue.toFixed(0)}):</span>
             <span style={{ fontWeight: 700, color: diffVsSpy >= 0 ? '#15803D' : '#B91C1C' }}>
-              {diffVsSpy >= 0 ? '+' : ''}${diffVsSpy.toFixed(0)}
+              {diffVsSpy >= 0 ? '+' : ''}{currSym}{diffVsSpy.toFixed(0)}
             </span>
           </div>
         </div>

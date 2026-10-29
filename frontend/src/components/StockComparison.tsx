@@ -2,19 +2,20 @@ import React, { useState } from 'react';
 import { ArrowUpRight, ArrowDownRight, Check, Sparkles } from 'lucide-react';
 import { STOCK_DATABASE } from '../data/mockData';
 import type { StockData } from '../types';
+import { getCurrencySymbol } from '../types';
 
 interface StockComparisonProps {
   onSelectStock?: (ticker: string) => void;
 }
 
 const PRESET_BASKETS = [
-  { name: 'Tech Mega-Caps', tickers: ['AAPL', 'MSFT', 'NVDA'] },
-  { name: 'Big Tech Growth', tickers: ['TSLA', 'AMZN', 'GOOGL'] },
-  { name: 'High Margin', tickers: ['AAPL', 'NVDA', 'META'] },
+  { name: 'Nifty Giants', tickers: ['RELIANCE.NS', 'TCS.NS', 'HDFCBANK.NS'] },
+  { name: 'Indian IT Leaders', tickers: ['TCS.NS', 'INFY.NS', 'WIPRO.NS'] },
+  { name: 'US Mega-Caps', tickers: ['AAPL', 'MSFT', 'NVDA'] },
 ];
 
 export const StockComparison: React.FC<StockComparisonProps> = ({ onSelectStock }) => {
-  const [selectedTickers, setSelectedTickers] = useState<string[]>(['AAPL', 'MSFT', 'NVDA']);
+  const [selectedTickers, setSelectedTickers] = useState<string[]>(['RELIANCE.NS', 'TCS.NS', 'HDFCBANK.NS']);
 
   const stocks: StockData[] = selectedTickers.map((t) => STOCK_DATABASE[t] || {
     symbol: t,
@@ -108,7 +109,7 @@ export const StockComparison: React.FC<StockComparisonProps> = ({ onSelectStock 
         <span className="mono" style={{ fontSize: '10px', fontWeight: 700, color: '#6B7280' }}>
           SELECT UP TO 3:
         </span>
-        {['AAPL', 'MSFT', 'NVDA', 'TSLA', 'AMZN', 'GOOGL', 'META'].map((t) => {
+        {['RELIANCE.NS', 'TCS.NS', 'INFY.NS', 'HDFCBANK.NS', 'AAPL', 'MSFT', 'NVDA'].map((t) => {
           const isSelected = selectedTickers.includes(t);
           return (
             <button
@@ -145,6 +146,7 @@ export const StockComparison: React.FC<StockComparisonProps> = ({ onSelectStock 
         }}
       >
         {stocks.map((stock) => {
+          const currSym = getCurrencySymbol(stock);
           const fairVal = Math.round(stock.price * 1.036);
           const upside = (((fairVal - stock.price) / stock.price) * 100).toFixed(1);
           const isLowestPe = (parseFloat(stock.peRatio) || 999) === lowestPe;
@@ -187,7 +189,7 @@ export const StockComparison: React.FC<StockComparisonProps> = ({ onSelectStock 
               {/* Price & Change */}
               <div style={{ borderBottom: '1px solid #E5E7EB', paddingBottom: '10px', marginBottom: '12px' }}>
                 <div className="mono" style={{ fontSize: '20px', fontWeight: 700 }}>
-                  ${stock.price.toFixed(2)}
+                  {currSym}{stock.price.toFixed(2)}
                 </div>
                 <div
                   className="mono"
@@ -222,7 +224,7 @@ export const StockComparison: React.FC<StockComparisonProps> = ({ onSelectStock 
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span style={{ color: '#6B7280' }}>DCF Fair Value:</span>
                   <span className="mono" style={{ fontWeight: 700, color: '#10B981' }}>
-                    ${fairVal} (+{upside}%)
+                    {currSym}{fairVal} (+{upside}%)
                   </span>
                 </div>
 

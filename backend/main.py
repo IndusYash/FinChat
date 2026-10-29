@@ -1,8 +1,18 @@
 import os
 import re
+import sys
 import time
 import io
 import json
+
+# Ensure UTF-8 console output on Windows to prevent charmap UnicodeEncodeErrors
+if sys.stdout and hasattr(sys.stdout, 'reconfigure'):
+    try:
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+        sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+    except Exception:
+        pass
+
 from typing import List, Dict, Any, Optional, Tuple
 import requests
 import numpy as np
@@ -49,7 +59,7 @@ HF_SPACE_URL          = keys.get("HF_SPACE_URL", os.environ.get("HF_SPACE_URL", 
 
 # Check and fix potential typo in OpenRouter key (stripping accidental leading 'Y')
 if OPENROUTER_API_KEY and OPENROUTER_API_KEY.startswith("Ysk-or-v1-"):
-    print("🧹 Note: Detected and stripped leading 'Y' typo from OpenRouter API Key.")
+    print("[NOTE] Detected and stripped leading 'Y' typo from OpenRouter API Key.")
     OPENROUTER_API_KEY = OPENROUTER_API_KEY[1:]
 
 # Validation
@@ -61,7 +71,7 @@ if not GROQ_API_KEY: missing.append("GROQ_API_KEY")
 if not OPENROUTER_API_KEY: missing.append("OPENROUTER_API_KEY")
 
 if missing:
-    print(f"⚠️ Warning: Missing environment variables: {', '.join(missing)}")
+    print(f"[WARNING] Missing environment variables: {', '.join(missing)}")
 
 # ── INITIALISE FASTAPI & MODELS ─────────────────────────────────
 app = FastAPI(title="Investo Bot RAG & Stock API Server")
@@ -82,7 +92,7 @@ try:
     retriever = SentenceTransformer(EMBEDDING_MODEL_NAME, device="cpu")
     print("Embedding model loaded.")
 except Exception as e:
-    print(f"⚠️ Error loading sentence-transformers: {e}")
+    print(f"[WARNING] Error loading sentence-transformers: {e}")
     retriever = None
 
 # 2. Connect to Pinecone
@@ -92,7 +102,7 @@ if PINECONE_API_KEY:
         index = pc.Index(INDEX_NAME)
         print("Connected to Pinecone index.")
     except Exception as e:
-        print(f"⚠️ Error connecting to Pinecone: {e}")
+        print(f"[WARNING] Error connecting to Pinecone: {e}")
         index = None
 else:
     index = None
@@ -1156,26 +1166,37 @@ def api_rag_query(payload: RagQueryPayload):
     if payload.model_mode == "FINE-TUNED":
         try:
             print(f"Querying Fine-tuned GGUF Space at {HF_SPACE_URL}/generate...")
+            # For CPU basic space (2 vCPUs), send concise context (max 650 chars) and cap tokens to 45
+            concise_context = context_text[:650] + ("..." if len(context_text) > 650 else "")
+            gguf_instruction = (
+                "You are FinChat. Answer briefly using the sources:\n"
+                f"{concise_context}"
+            )
             gguf_prompt = (
-                f"<|start_header_id|>system<|end_header_id|>\n\n{system_instruction}<|eot_id|>"
+                f"<|start_header_id|>system<|end_header_id|>\n\n{gguf_instruction}<|eot_id|>"
                 f"<|start_header_id|>user<|end_header_id|>\n\n{payload.query}<|eot_id|>"
                 f"<|start_header_id|>assistant<|end_header_id|>\n\n"
             )
             r = requests.post(
                 f"{HF_SPACE_URL.rstrip('/')}/generate",
                 headers={"Content-Type": "application/json"},
-                json={"prompt": gguf_prompt, "max_tokens": 120},
-                timeout=60
+                json={"prompt": gguf_prompt, "max_tokens": 45},
+                timeout=25
             )
             if r.ok:
                 res_data = r.json()
                 answer = res_data.get("response", "").strip()
-                model_used = "Fine-Tuned GGUF Space (CPU)"
+                if answer:
+                    model_used = "Fine-Tuned GGUF Space (CPU)"
+                    print("[OK] Fine-tuned GGUF responded successfully")
         except Exception as e:
-            print(f"Fine-tuned GGUF generation failed, falling back: {e}")
+            print(f"[WARNING] Fine-tuned GGUF generation failed or timed out: {e}")
 
     # Mode 2: Cloud Model (Groq Primary with 3x retry -> OpenRouter Free Fallback)
+    # Also acts as instant failover if Fine-Tuned GGUF timed out or failed
     if not answer:
+        if payload.model_mode == "FINE-TUNED":
+            print("[NOTE] Seamlessly falling back to Groq Cloud model due to CPU Space timeout/error...")
         # Primary: Groq with 3 attempts
         if GROQ_API_KEY:
             for attempt in range(1, 4):
@@ -1200,8 +1221,11 @@ def api_rag_query(payload: RagQueryPayload):
                     )
                     if r.ok:
                         answer = r.json()["choices"][0]["message"]["content"].strip()
-                        model_used = f"Groq Cloud ({GROQ_MODEL})"
-                        print(f"✓ Groq Grounded RAG succeeded on attempt {attempt}")
+                        if payload.model_mode == "FINE-TUNED":
+                            model_used = f"Groq Cloud Fallback ({GROQ_MODEL})"
+                        else:
+                            model_used = f"Groq Cloud ({GROQ_MODEL})"
+                        print(f"[OK] Groq Grounded RAG succeeded on attempt {attempt}")
                         break
                 except Exception as e:
                     print(f"Groq RAG attempt {attempt} error: {e}")

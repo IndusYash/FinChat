@@ -169,6 +169,7 @@ export default function App() {
         };
         setMessages((prev) => prev.map((m) => (m.id === loadingId ? assistantMsg : m)));
       } catch (err) {
+        console.error('RAG query pipeline error:', err);
         const errMsg: Message = {
           id: loadingId,
           role: 'assistant',

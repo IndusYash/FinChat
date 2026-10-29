@@ -153,7 +153,7 @@ export async function queryRagPipeline(params: RagQueryParams): Promise<RagQuery
       session_id: params.sessionId || 'default_session',
       allow_general_search: Boolean(params.allowGeneralSearch),
     }),
-    signal: AbortSignal.timeout(60000),
+    signal: AbortSignal.timeout(90000),
   });
 
   if (!res.ok) {

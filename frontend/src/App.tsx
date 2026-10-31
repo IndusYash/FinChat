@@ -61,13 +61,32 @@ export default function App() {
     isSampleData: true,
   }));
 
-  // Fetch live market data on initial mount
+  // Synchronize state with URL query parameters for deep linking & refresh persistence
   useEffect(() => {
-    loadStockData('RELIANCE.NS');
+    const params = new URLSearchParams(window.location.search);
+    const urlTab = params.get('tab') as TabType;
+    const urlTicker = params.get('ticker');
+
+    const validTabs: TabType[] = ['HOME', 'TERMINAL', 'QUANT_LAB', 'CAPITAL_LAB', 'NEWS', 'RAG_VAULT', 'SYS_ARCH'];
+    if (urlTab && validTabs.includes(urlTab)) {
+      setActiveTab(urlTab);
+    }
+    const initialTicker = urlTicker || 'RELIANCE.NS';
+    loadStockData(initialTicker);
   }, []);
 
+  // Sync tab & ticker back to URL query parameters without reloading
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    params.set('tab', activeTab);
+    params.set('ticker', activeSymbol);
+    const newUrl = `${window.location.pathname}?${params.toString()}`;
+    window.history.replaceState({}, '', newUrl);
+  }, [activeTab, activeSymbol]);
+
   const loadStockData = async (symbol: string) => {
-    const sym = symbol.trim().toUpperCase();
+    const resolved = detectBrandOrTicker(symbol) || symbol;
+    const sym = resolved.trim().toUpperCase();
     if (!sym || isStockLoading) return;
 
     setIsStockLoading(true);
@@ -296,7 +315,12 @@ export default function App() {
         )}
 
         {activeTab === 'QUANT_LAB' && (
-          <QuantLab currentStock={currentStock} />
+          <QuantLab
+            currentStock={currentStock}
+            onSearchSymbol={loadStockData}
+            isStockLoading={isStockLoading}
+            stockError={stockError}
+          />
         )}
 
         {activeTab === 'CAPITAL_LAB' && (
@@ -304,7 +328,12 @@ export default function App() {
         )}
 
         {activeTab === 'NEWS' && (
-          <MarketPulse currentStock={currentStock} />
+          <MarketPulse
+            currentStock={currentStock}
+            onSearchSymbol={loadStockData}
+            isStockLoading={isStockLoading}
+            stockError={stockError}
+          />
         )}
 
         {activeTab === 'RAG_VAULT' && (

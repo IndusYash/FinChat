@@ -1,18 +1,34 @@
-import React from 'react';
+import React, { useState } from 'react';
 import type { StockData, NewsItem } from '../types';
-import { ExternalLink, TrendingUp, TrendingDown, Minus, AlertCircle, Newspaper } from 'lucide-react';
+import { ExternalLink, TrendingUp, TrendingDown, Minus, AlertCircle, Newspaper, Search, Loader2 } from 'lucide-react';
 
 interface MarketPulseProps {
   currentStock: StockData;
+  onSearchSymbol?: (symbol: string) => void;
+  isStockLoading?: boolean;
+  stockError?: string | null;
 }
 
-export const MarketPulse: React.FC<MarketPulseProps> = ({ currentStock }) => {
+export const MarketPulse: React.FC<MarketPulseProps> = ({
+  currentStock,
+  onSearchSymbol,
+  isStockLoading = false,
+  stockError = null,
+}) => {
+  const [tickerInput, setTickerInput] = useState('');
   const liveNews: NewsItem[] = currentStock.news || [];
   const hasNews = liveNews.length > 0;
 
   const avgSentiment = hasNews
     ? liveNews.reduce((acc, curr) => acc + curr.score, 0) / liveNews.length
     : 0;
+
+  const handleSearchSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!tickerInput.trim() || isStockLoading || !onSearchSymbol) return;
+    onSearchSymbol(tickerInput.trim());
+    setTickerInput('');
+  };
 
   return (
     <div style={{ paddingBottom: '30px' }}>
@@ -40,6 +56,113 @@ export const MarketPulse: React.FC<MarketPulseProps> = ({ currentStock }) => {
           {currentStock.symbol} — {currentStock.name}
         </div>
       </div>
+
+      {/* In-Page Ticker Search & Quick Pill Strip */}
+      <div
+        style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '12px',
+          padding: '10px 14px',
+          backgroundColor: '#F9FAFB',
+          border: '1px solid #E5E7EB',
+          marginBottom: '16px',
+        }}
+      >
+        <form
+          onSubmit={handleSearchSubmit}
+          style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: '1', minWidth: '260px', maxWidth: '440px' }}
+        >
+          <div style={{ position: 'relative', flex: 1 }}>
+            <Search size={14} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#9CA3AF' }} />
+            <input
+              type="text"
+              value={tickerInput}
+              onChange={(e) => setTickerInput(e.target.value)}
+              placeholder="Search news ticker (e.g. TCS, INFY, RELIANCE, AAPL)..."
+              disabled={isStockLoading}
+              style={{
+                width: '100%',
+                padding: '6px 10px 6px 30px',
+                fontSize: '12px',
+                border: '1px solid #D1D5DB',
+                borderRadius: '0px',
+                fontFamily: 'monospace',
+                backgroundColor: '#FFFFFF',
+              }}
+            />
+          </div>
+          <button
+            type="submit"
+            disabled={isStockLoading || !tickerInput.trim()}
+            style={{
+              padding: '6px 14px',
+              fontSize: '11px',
+              fontWeight: 700,
+              backgroundColor: '#000000',
+              color: '#FFFFFF',
+              border: 'none',
+              cursor: isStockLoading ? 'not-allowed' : 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+            }}
+          >
+            {isStockLoading ? (
+              <>
+                <Loader2 size={12} className="spin" />
+                <span>LOADING...</span>
+              </>
+            ) : (
+              <span>FETCH NEWS</span>
+            )}
+          </button>
+        </form>
+
+        {/* Quick Ticker Selector Pills */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+          <span style={{ fontSize: '11px', color: '#6B7280', fontWeight: 600 }}>QUICK:</span>
+          {['RELIANCE.NS', 'TCS.NS', 'INFY.NS', 'HDFCBANK.NS', 'AAPL', 'NVDA', 'TSLA'].map((sym) => {
+            const isSelected = currentStock.symbol === sym;
+            return (
+              <button
+                key={sym}
+                type="button"
+                onClick={() => onSearchSymbol && onSearchSymbol(sym)}
+                disabled={isStockLoading}
+                style={{
+                  fontSize: '11px',
+                  fontFamily: 'monospace',
+                  fontWeight: isSelected ? 700 : 500,
+                  backgroundColor: isSelected ? '#000000' : '#FFFFFF',
+                  color: isSelected ? '#FFFFFF' : '#111827',
+                  border: isSelected ? '1px solid #000000' : '1px solid #D1D5DB',
+                  padding: '3px 8px',
+                  cursor: 'pointer',
+                }}
+              >
+                {sym.replace('.NS', '')}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Error & Sample Data Banners */}
+      {stockError && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px', backgroundColor: '#FEF2F2', border: '1px solid #FCA5A5', color: '#991B1B', fontSize: '12px', marginBottom: '16px' }}>
+          <AlertCircle size={14} />
+          <span>{stockError}</span>
+        </div>
+      )}
+      {currentStock.isSampleData && !stockError && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 12px', backgroundColor: '#FFFBEB', border: '1px solid #FDE68A', color: '#92400E', fontSize: '11px', marginBottom: '16px' }}>
+          <AlertCircle size={13} />
+          <span>Live market provider unavailable. Displaying verified historical sample news.</span>
+        </div>
+      )}
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.4fr', gap: '28px' }}>
         {/* Left Column: Fundamental Multiples & Solvency */}
